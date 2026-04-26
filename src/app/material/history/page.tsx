@@ -459,23 +459,15 @@ export default function MaterialHistoryPage() {
         )}
 
         <div>
-          <h1 className="text-2xl font-bold">素材中心</h1>
-          <p className="text-muted-foreground">统一管理视频素材、商品素材和演员素材</p>
+          <h1 className="text-2xl font-bold">视频库</h1>
+          <p className="text-muted-foreground">专门管理生成视频、创作详情与 REMIX 任务</p>
         </div>
 
         <Tabs value={materialTab} onValueChange={(value) => setMaterialTab(value as 'videos' | 'products' | 'actors')}>
           <TabsList>
             <TabsTrigger value="videos">
               <Film className="h-4 w-4 mr-2" />
-              视频素材
-            </TabsTrigger>
-            <TabsTrigger value="products">
-              <Package className="h-4 w-4 mr-2" />
-              商品素材
-            </TabsTrigger>
-            <TabsTrigger value="actors">
-              <Users className="h-4 w-4 mr-2" />
-              演员素材
+              视频库
             </TabsTrigger>
           </TabsList>
 
@@ -616,19 +608,6 @@ export default function MaterialHistoryPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="products" className="mt-6">
-            <ProductGrid products={products} loading={productsLoading} onRefresh={loadProducts} formatDate={formatDate} />
-          </TabsContent>
-
-          <TabsContent value="actors" className="mt-6">
-            <RealAssetGrid
-              assets={realAssets}
-              loading={realAssetsLoading}
-              onRefresh={loadRealAssets}
-              onCopyAssetRef={copyAssetRef}
-              formatDate={formatDate}
-            />
-          </TabsContent>
         </Tabs>
 
         {/* 创作详情弹窗 */}

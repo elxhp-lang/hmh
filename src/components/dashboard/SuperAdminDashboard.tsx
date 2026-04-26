@@ -213,7 +213,7 @@ export function SuperAdminDashboard({ token }: SuperAdminDashboardProps) {
             </div>
           </a>
           <a
-            href="/material/history"
+            href="/product-library"
             className="flex items-center gap-3 p-4 rounded-xl bg-[#F8FAFC] hover:bg-cyan-50 border border-transparent hover:border-cyan-200 transition-all group"
           >
             <div className="w-10 h-10 rounded-lg bg-cyan-100 flex items-center justify-center group-hover:bg-cyan-200 transition-colors">
@@ -221,7 +221,7 @@ export function SuperAdminDashboard({ token }: SuperAdminDashboardProps) {
             </div>
             <div>
               <p className="font-medium text-sm">素材中心</p>
-              <p className="text-xs text-muted-foreground">统一管理素材资产</p>
+              <p className="text-xs text-muted-foreground">管理商品素材与演员素材</p>
             </div>
           </a>
           <a

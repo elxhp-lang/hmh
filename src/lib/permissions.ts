@@ -44,10 +44,10 @@ export const PAGE_PERMISSIONS: Record<string, UserRole[]> = {
   // 学习库 - 素材相关角色可访问
   '/learning-library': ['super_admin', 'material_leader', 'material_member'],
   
-  // 商品图库 - 素材相关角色可访问
+  // 素材中心（商品/演员） - 素材相关角色可访问
   '/product-library': ['super_admin', 'material_leader', 'material_member'],
   
-  // 素材中心 - 仅超级管理员和素材团队可访问
+  // 视频库 - 仅超级管理员和素材团队可访问
   '/material/history': ['super_admin', 'material_leader', 'material_member'],
   
   // 账单管理 - 超级管理员和财务可访问
@@ -74,8 +74,8 @@ export const NAV_CONFIG: Record<UserRole, Array<{
     { label: '手动制作视频', href: '/video', icon: 'Video' },
     { label: '创意小海', href: '/agent/create', icon: 'Sparkles' },
     { label: '学习库', href: '/learning-library', icon: 'Brain' },
-    { label: '商品图库', href: '/product-library', icon: 'Package' },
-    { label: '素材中心', href: '/material/history', icon: 'History' },
+    { label: '素材中心', href: '/product-library', icon: 'Package' },
+    { label: '视频库', href: '/material/history', icon: 'History' },
     { label: '账单管理', href: '/billing', icon: 'Receipt' },
     { label: '智能助手', href: '/agent', icon: 'MessageSquare' },
     { label: '用户管理', href: '/admin/users', icon: 'Users' },
@@ -90,8 +90,8 @@ export const NAV_CONFIG: Record<UserRole, Array<{
     { label: '手动制作视频', href: '/video', icon: 'Video' },
     { label: '创意小海', href: '/agent/create', icon: 'Sparkles' },
     { label: '学习库', href: '/learning-library', icon: 'Brain' },
-    { label: '商品图库', href: '/product-library', icon: 'Package' },
-    { label: '素材中心', href: '/material/history', icon: 'History' },
+    { label: '素材中心', href: '/product-library', icon: 'Package' },
+    { label: '视频库', href: '/material/history', icon: 'History' },
     { label: '智能助手', href: '/agent', icon: 'MessageSquare' },
   ],
   material_member: [
@@ -99,8 +99,8 @@ export const NAV_CONFIG: Record<UserRole, Array<{
     { label: '手动制作视频', href: '/video', icon: 'Video' },
     { label: '创意小海', href: '/agent/create', icon: 'Sparkles' },
     { label: '学习库', href: '/learning-library', icon: 'Brain' },
-    { label: '商品图库', href: '/product-library', icon: 'Package' },
-    { label: '素材中心', href: '/material/history', icon: 'History' },
+    { label: '素材中心', href: '/product-library', icon: 'Package' },
+    { label: '视频库', href: '/material/history', icon: 'History' },
     { label: '智能助手', href: '/agent', icon: 'MessageSquare' },
   ],
 };
@@ -170,7 +170,7 @@ export const DASHBOARD_CONFIG: Record<UserRole, DashboardConfig> = {
     quickActions: [
       { label: '创意小海', href: '/agent/create', icon: 'Sparkles' },
       { label: '手动制作', href: '/video', icon: 'Video' },
-      { label: '团队素材', href: '/material/history?type=team', icon: 'History' },
+      { label: '团队视频库', href: '/material/history?type=team', icon: 'History' },
     ],
   },
   material_member: {
@@ -185,7 +185,7 @@ export const DASHBOARD_CONFIG: Record<UserRole, DashboardConfig> = {
     quickActions: [
       { label: '创意小海', href: '/agent/create', icon: 'Sparkles' },
       { label: '手动制作', href: '/video', icon: 'Video' },
-      { label: '我的素材', href: '/material/history', icon: 'History' },
+      { label: '我的视频库', href: '/material/history', icon: 'History' },
     ],
   },
 };

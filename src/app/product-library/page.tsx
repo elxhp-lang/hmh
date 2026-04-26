@@ -367,7 +367,7 @@ export default function ProductLibraryPage() {
                 <Package className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold">素材库</h1>
+                <h1 className="text-2xl font-bold">素材中心</h1>
                 <p className="text-muted-foreground">
                   统一管理商品素材与演员素材。演员素材生成时使用 asset:// 引用，asset_url 用于预览。
                 </p>
