@@ -116,10 +116,13 @@ export default function MaterialHistoryPage() {
   const [versionFilter, setVersionFilter] = useState<string>('all');
   const [keyword, setKeyword] = useState<string>('');
   const [tagKeyword, setTagKeyword] = useState<string>('');
+  const [sourceVideoFilter, setSourceVideoFilter] = useState<string>('');
   const [page, setPage] = useState(1);
   const [syncToast, setSyncToast] = useState<string | null>(null);
   const [selectedVideo, setSelectedVideo] = useState<VideoItem | null>(null);
   const [remixingIds, setRemixingIds] = useState<Set<string>>(new Set());
+
+  const videoById = new Map((data?.videos || []).map((v) => [v.id, v] as const));
 
   // 是否可以查看团队
   const canViewTeam = permission.isMaterialLeader || permission.isAdmin;
@@ -158,6 +161,10 @@ export default function MaterialHistoryPage() {
         params.set('version', versionFilter);
       }
 
+      if (sourceVideoFilter && sourceVideoFilter.trim()) {
+        params.set('sourceVideoId', sourceVideoFilter.trim());
+      }
+
       const response = await fetch(`/api/material/history?${params}`, {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -173,7 +180,7 @@ export default function MaterialHistoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, activeTab, statusFilter, categoryFilter, keyword, tagKeyword, versionFilter, page]);
+  }, [token, activeTab, statusFilter, categoryFilter, keyword, tagKeyword, versionFilter, sourceVideoFilter, page]);
 
   useEffect(() => {
     loadHistory();
@@ -209,6 +216,17 @@ export default function MaterialHistoryPage() {
 
   const handleVersionChange = (value: string) => {
     setVersionFilter(value);
+    setPage(1);
+  };
+
+  const filterBySourceVideo = (sourceId: string) => {
+    setVersionFilter('remix');
+    setSourceVideoFilter(sourceId);
+    setPage(1);
+  };
+
+  const clearSourceVideoFilter = () => {
+    setSourceVideoFilter('');
     setPage(1);
   };
 
@@ -431,6 +449,14 @@ export default function MaterialHistoryPage() {
                 />
               </div>
 
+              <div className="min-w-[220px]">
+                <Input
+                  placeholder="按来源视频ID筛选REMIX"
+                  value={sourceVideoFilter}
+                  onChange={(e) => setSourceVideoFilter(e.target.value)}
+                />
+              </div>
+
               <Select value={categoryFilter} onValueChange={handleCategoryChange}>
                 <SelectTrigger className="w-[140px]">
                   <SelectValue placeholder="分类筛选" />
@@ -468,6 +494,12 @@ export default function MaterialHistoryPage() {
                 </SelectContent>
               </Select>
 
+              {sourceVideoFilter && (
+                <Button variant="outline" onClick={clearSourceVideoFilter}>
+                  清除来源筛选
+                </Button>
+              )}
+
               <Button variant="outline" size="icon" onClick={loadHistory}>
                 <RefreshCw className="h-4 w-4" />
               </Button>
@@ -500,6 +532,16 @@ export default function MaterialHistoryPage() {
                     isNewlyCreated={isNewlyCreated}
                     onRemix={handleRemix}
                     remixingIds={remixingIds}
+                  onOpenSourceVideo={(video) => {
+                    if (!video.source_video_id) return;
+                    const source = videoById.get(video.source_video_id);
+                    if (source) {
+                      setSelectedVideo(source);
+                    } else {
+                      setSyncToast(`未在当前列表找到来源视频 ${video.source_video_id.slice(0, 8)}`);
+                      setTimeout(() => setSyncToast(null), 2500);
+                    }
+                  }}
                   />
                 </TabsContent>
 
@@ -517,6 +559,16 @@ export default function MaterialHistoryPage() {
                     isNewlyCreated={isNewlyCreated}
                     onRemix={handleRemix}
                     remixingIds={remixingIds}
+                  onOpenSourceVideo={(video) => {
+                    if (!video.source_video_id) return;
+                    const source = videoById.get(video.source_video_id);
+                    if (source) {
+                      setSelectedVideo(source);
+                    } else {
+                      setSyncToast(`未在当前列表找到来源视频 ${video.source_video_id.slice(0, 8)}`);
+                      setTimeout(() => setSyncToast(null), 2500);
+                    }
+                  }}
                   />
                 </TabsContent>
               </Tabs>
@@ -534,6 +586,16 @@ export default function MaterialHistoryPage() {
                 isNewlyCreated={isNewlyCreated}
                 onRemix={handleRemix}
                 remixingIds={remixingIds}
+                onOpenSourceVideo={(video) => {
+                  if (!video.source_video_id) return;
+                  const source = videoById.get(video.source_video_id);
+                  if (source) {
+                    setSelectedVideo(source);
+                  } else {
+                    setSyncToast(`未在当前列表找到来源视频 ${video.source_video_id.slice(0, 8)}`);
+                    setTimeout(() => setSyncToast(null), 2500);
+                  }
+                }}
               />
             )}
 
@@ -688,7 +750,16 @@ export default function MaterialHistoryPage() {
                     {selectedVideo.source_video_id && (
                       <div>
                         <span className="text-muted-foreground">来源视频ID:</span>
-                        <p className="font-mono">{selectedVideo.source_video_id}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <p className="font-mono">{selectedVideo.source_video_id}</p>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => filterBySourceVideo(selectedVideo.source_video_id!)}
+                          >
+                            查看同源REMIX
+                          </Button>
+                        </div>
                       </div>
                     )}
                     {selectedVideo.source_task_id && (
@@ -736,6 +807,7 @@ function VideoGrid({
   isNewlyCreated,
   onRemix,
   remixingIds,
+  onOpenSourceVideo,
 }: {
   loading: boolean;
   videos: VideoItem[];
@@ -749,6 +821,7 @@ function VideoGrid({
   isNewlyCreated: (createdAt: string) => boolean;
   onRemix: (video: VideoItem) => void;
   remixingIds: Set<string>;
+  onOpenSourceVideo: (video: VideoItem) => void;
 }) {
   if (loading) {
     return (
@@ -942,6 +1015,17 @@ function VideoGrid({
                   )}
                   REMIX
                 </Button>
+                {video.source_video_id && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 min-w-[80px]"
+                    onClick={() => onOpenSourceVideo(video)}
+                  >
+                    <Info className="h-3 w-3 mr-1" />
+                    来源视频
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="default"

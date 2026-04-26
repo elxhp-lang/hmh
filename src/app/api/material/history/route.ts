@@ -46,6 +46,7 @@ export async function GET(request: NextRequest) {
     const keyword = searchParams.get('keyword');
     const tag = searchParams.get('tag');
     const version = searchParams.get('version') || 'all';
+    const sourceVideoId = searchParams.get('sourceVideoId');
     const targetUserId = searchParams.get('userId');
 
     const client = getSupabaseClient();
@@ -140,6 +141,10 @@ export async function GET(request: NextRequest) {
       videoQuery = videoQuery.eq('is_remix', true);
     } else if (version === 'original') {
       videoQuery = videoQuery.or('is_remix.is.null,is_remix.eq.false');
+    }
+
+    if (sourceVideoId && sourceVideoId.trim()) {
+      videoQuery = videoQuery.eq('source_video_id', sourceVideoId.trim());
     }
 
     // 不分页，获取所有数据（后续合并后再分页）
