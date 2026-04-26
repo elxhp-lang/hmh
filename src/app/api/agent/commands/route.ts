@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { fail, ok } from '@/lib/server/api-kit';
 
 /**
  * 通用智能体指令 API
@@ -330,10 +331,7 @@ export async function POST(request: NextRequest) {
   try {
     // 验证 API 密钥
     if (!validateApiKey(request)) {
-      return NextResponse.json(
-        { success: false, message: '无效的访问密钥' },
-        { status: 401 }
-      );
+      return fail('无效的访问密钥', 401);
     }
     
     const body: CommandRequest = await request.json();
@@ -378,14 +376,11 @@ export async function POST(request: NextRequest) {
     
     console.log(`[智能体API] 响应:`, result.message);
     
-    return NextResponse.json(result);
+    return ok(result);
     
   } catch (error) {
     console.error('[智能体API] 错误:', error);
-    return NextResponse.json(
-      { success: false, message: '服务器内部错误' },
-      { status: 500 }
-    );
+    return fail('服务器内部错误', 500);
   }
 }
 
@@ -395,14 +390,10 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   // 验证 API 密钥
   if (!validateApiKey(request)) {
-    return NextResponse.json(
-      { success: false, message: '无效的访问密钥' },
-      { status: 401 }
-    );
+    return fail('无效的访问密钥', 401);
   }
   
-  return NextResponse.json({
-    success: true,
+  return ok({
     message: '海盟会智能体指令 API',
     version: '1.0.0',
     supported_actions: [
