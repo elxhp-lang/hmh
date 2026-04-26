@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { VideoStorageService } from '@/lib/tos-storage';
-import jwt from 'jsonwebtoken';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+import { fail, normalizeText, requireAuth, toPositiveInt } from '@/lib/server/api-kit';
 
 /**
  * 素材历史 API
@@ -23,14 +21,9 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
  */
 export async function GET(request: NextRequest) {
   try {
-    // 验证用户身份
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 });
-    }
-
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; role: string };
+    const auth = requireAuth(request);
+    if (auth.response || !auth.user) return auth.response;
+    const decoded = auth.user;
 
     // 权限检查：财务角色无权访问
     if (decoded.role === 'finance') {
@@ -38,17 +31,17 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const type = searchParams.get('type') || 'personal';
-    const page = parseInt(searchParams.get('page') || '1', 10);
-    const limit = parseInt(searchParams.get('limit') || '20', 10);
-    const status = searchParams.get('status');
-    const category = searchParams.get('category');
-    const keyword = searchParams.get('keyword');
-    const tag = searchParams.get('tag');
+    const type = searchParams.get('type') === 'team' ? 'team' : 'personal';
+    const page = toPositiveInt(searchParams.get('page'), 1);
+    const limit = toPositiveInt(searchParams.get('limit'), 20, 1, 100);
+    const status = normalizeText(searchParams.get('status'));
+    const category = normalizeText(searchParams.get('category'));
+    const keyword = normalizeText(searchParams.get('keyword'));
+    const tag = normalizeText(searchParams.get('tag'));
     const version = searchParams.get('version') || 'all';
-    const sourceVideoId = searchParams.get('sourceVideoId');
-    const targetVideoId = searchParams.get('id');
-    const targetUserId = searchParams.get('userId');
+    const sourceVideoId = normalizeText(searchParams.get('sourceVideoId'));
+    const targetVideoId = normalizeText(searchParams.get('id'));
+    const targetUserId = normalizeText(searchParams.get('userId'));
 
     const client = getSupabaseClient();
     const offset = (page - 1) * limit;
@@ -133,8 +126,8 @@ export async function GET(request: NextRequest) {
     }
 
     // 标签精确筛选（jsonb 数组包含）
-    if (tag && tag.trim()) {
-      videoQuery = videoQuery.contains('tags', [tag.trim()]);
+    if (tag) {
+      videoQuery = videoQuery.contains('tags', [tag]);
     }
 
     // 版本筛选
@@ -144,12 +137,12 @@ export async function GET(request: NextRequest) {
       videoQuery = videoQuery.or('is_remix.is.null,is_remix.eq.false');
     }
 
-    if (sourceVideoId && sourceVideoId.trim()) {
-      videoQuery = videoQuery.eq('source_video_id', sourceVideoId.trim());
+    if (sourceVideoId) {
+      videoQuery = videoQuery.eq('source_video_id', sourceVideoId);
     }
 
-    if (targetVideoId && targetVideoId.trim()) {
-      videoQuery = videoQuery.eq('id', targetVideoId.trim());
+    if (targetVideoId) {
+      videoQuery = videoQuery.eq('id', targetVideoId);
     }
 
     // 不分页，获取所有数据（后续合并后再分页）
@@ -357,14 +350,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('查询素材历史失败:', error);
-    
-    if (error instanceof jwt.JsonWebTokenError) {
-      return NextResponse.json({ error: '登录已过期，请重新登录' }, { status: 401 });
-    }
-    
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : '查询失败' },
-      { status: 500 }
-    );
+
+    return fail(error instanceof Error ? error.message : '查询失败', 500);
   }
 }

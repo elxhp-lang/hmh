@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { SeedanceClient, Content, VideoRatio, SeedanceModel } from '@/lib/seedance-client';
 import { VideoStorageService } from '@/lib/tos-storage';
-import jwt, { TokenExpiredError, JsonWebTokenError } from 'jsonwebtoken';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+import { fail, normalizeText, requireAuth } from '@/lib/server/api-kit';
 
 // 初始化 Seedance 客户端
 const seedanceClient = new SeedanceClient();
@@ -39,27 +37,9 @@ const seedanceClient = new SeedanceClient();
  */
 export async function POST(request: NextRequest) {
   try {
-    // 验证用户身份
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 });
-    }
-
-    const token = authHeader.split(' ')[1];
-    
-    // 验证 token 并处理过期情况
-    let decoded;
-    try {
-      decoded = jwt.verify(token, JWT_SECRET) as { userId: string; username: string; role: string };
-    } catch (jwtError) {
-      if (jwtError instanceof TokenExpiredError) {
-        return NextResponse.json({ error: '登录已过期，请重新登录' }, { status: 401 });
-      }
-      if (jwtError instanceof JsonWebTokenError) {
-        return NextResponse.json({ error: '无效的登录凭证' }, { status: 401 });
-      }
-      throw jwtError;
-    }
+    const auth = requireAuth(request);
+    if (auth.response || !auth.user) return auth.response;
+    const decoded = auth.user;
     
     const body = await request.json();
     const {
@@ -83,16 +63,16 @@ export async function POST(request: NextRequest) {
     } = body;
 
     if (!prompt) {
-      return NextResponse.json({ error: '提示词不能为空' }, { status: 400 });
+      return fail('提示词不能为空', 400);
     }
 
     // 验证参数
     if (duration < 4 || duration > 15) {
-      return NextResponse.json({ error: '视频时长必须在4-15秒之间' }, { status: 400 });
+      return fail('视频时长必须在4-15秒之间', 400);
     }
 
     if (referenceImages.length > 9) {
-      return NextResponse.json({ error: '参考图片最多9张' }, { status: 400 });
+      return fail('参考图片最多9张', 400);
     }
 
     const normalizedReferenceImages = [...referenceImages];
@@ -101,11 +81,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (referenceVideos.length > 3) {
-      return NextResponse.json({ error: '参考视频最多3个' }, { status: 400 });
+      return fail('参考视频最多3个', 400);
     }
 
     if (referenceAudios.length > 3) {
-      return NextResponse.json({ error: '参考音频最多3个' }, { status: 400 });
+      return fail('参考音频最多3个', 400);
     }
 
     // 创建视频任务记录
@@ -127,8 +107,8 @@ export async function POST(request: NextRequest) {
         generate_audio: generateAudio,
         watermark,
         web_search: webSearch,
-        source_video_id: sourceVideoId || null,
-        source_task_id: sourceTaskId || null,
+        source_video_id: normalizeText(sourceVideoId) || null,
+        source_task_id: normalizeText(sourceTaskId) || null,
         is_remix: Boolean(isRemix),
         status: 'processing',
       })
@@ -242,14 +222,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('视频生成错误:', error);
     
-    if (error instanceof jwt.JsonWebTokenError) {
-      return NextResponse.json({ error: '登录已过期，请重新登录' }, { status: 401 });
-    }
-    
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : '视频生成失败' },
-      { status: 500 }
-    );
+    return fail(error instanceof Error ? error.message : '视频生成失败', 500);
   }
 }
 
@@ -259,13 +232,9 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 });
-    }
-
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+    const auth = requireAuth(request);
+    if (auth.response || !auth.user) return auth.response;
+    const decoded = auth.user;
 
     const { searchParams } = new URL(request.url);
     const taskId = searchParams.get('taskId');
@@ -282,7 +251,7 @@ export async function GET(request: NextRequest) {
         .single();
 
       if (error) {
-        return NextResponse.json({ error: '任务不存在' }, { status: 404 });
+      return fail('任务不存在', 404);
       }
 
       const video = data as any;
