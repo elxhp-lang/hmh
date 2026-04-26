@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { streamAgentRequest, SSEEvent, apiRequest } from '@/lib/api';
+import { streamAgentRequest, apiRequest } from '@/lib/api';
+import { SSEEvent } from '@/lib/agent-sse';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';

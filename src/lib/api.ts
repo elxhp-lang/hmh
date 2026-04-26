@@ -1,4 +1,5 @@
 import { useAuth } from '@/contexts/AuthContext';
+import { parseSSEPayload, SSEEvent, SSEEventType } from '@/lib/agent-sse';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
@@ -155,29 +156,6 @@ export function useApi() {
 }
 
 // Agent SSE 流式请求 - 支持事件类型
-export type SSEEventType = 
-  | 'start' 
-  | 'content' 
-  | 'text' 
-  | 'tool_start' 
-  | 'tool_result' 
-  | 'video_analysis' 
-  | 'script_options' 
-  | 'task_submitted' 
-  | 'task' 
-  | 'task_done' 
-  | 'copywriting_options'
-  | 'error' 
-  | 'done';
-
-export interface SSEEvent {
-  type: SSEEventType;
-  content?: string;
-  data?: any;
-  tool?: string;
-  result?: any;
-}
-
 export async function streamAgentRequest(
   endpoint: string,
   body: unknown,
@@ -224,37 +202,8 @@ export async function streamAgentRequest(
           if (!dataStr || dataStr === '[DONE]') continue;
           
           try {
-            const data = JSON.parse(dataStr);
-            
-            // 处理不同的事件类型
-            if (data.type === 'start') {
-              onEvent({ type: 'start' });
-            } else if (data.type === 'content' || data.type === 'text') {
-              onEvent({ type: data.type, content: data.content });
-            } else if (data.type === 'tool_start') {
-              onEvent({ type: 'tool_start', tool: data.tool, content: data.content });
-            } else if (data.type === 'tool_result') {
-              onEvent({ type: 'tool_result', tool: data.tool, result: data.result });
-            } else if (data.type === 'video_analysis') {
-              onEvent({ type: 'video_analysis', content: data.content, data: data.data });
-            } else if (data.type === 'script_options') {
-              onEvent({ type: 'script_options', content: data.content, data: data.data });
-            } else if (data.type === 'task_submitted') {
-              onEvent({ type: 'task_submitted', content: data.content, data: data.data });
-            } else if (data.type === 'task') {
-              onEvent({ type: 'task', content: data.content, data: data.data });
-            } else if (data.type === 'task_done') {
-              onEvent({ type: 'task_done', content: data.content, data: data.data });
-            } else if (data.type === 'copywriting_options') {
-              onEvent({ type: 'copywriting_options', content: data.content, data: data.data });
-            } else if (data.type === 'error') {
-              onEvent({ type: 'error', content: data.content, data: data.data });
-            } else if (data.type === 'done') {
-              onEvent({ type: 'done' });
-            } else if (data.content) {
-              // 默认当作文本内容处理
-              onEvent({ type: 'content', content: data.content });
-            }
+            const event = parseSSEPayload(dataStr);
+            if (event) onEvent(event);
           } catch (e) {
             // 忽略解析错误，继续处理下一行
           }
@@ -270,3 +219,4 @@ export async function streamAgentRequest(
 }
 
 export { ApiError };
+export type { SSEEvent, SSEEventType };

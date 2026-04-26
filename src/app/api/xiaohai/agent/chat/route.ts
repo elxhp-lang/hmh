@@ -18,6 +18,7 @@ import { LLMClient, Config, Message } from 'coze-coding-dev-sdk';
 import { AgentToolsService } from '@/lib/agent-tools-service';
 import { getXiaohaiSystemPromptV3 } from '@/lib/xiaohai-system-prompt-v3';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { createSSEWriter, getBearerToken, ok } from '@/lib/server/api-kit';
 
 const client = new LLMClient(new Config());
 const toolsService = new AgentToolsService();
@@ -137,7 +138,7 @@ function tryExtractScriptOptions(content: string): ExtractedScriptOption[] | nul
 export async function POST(request: NextRequest) {
   try {
     // 1. 验证用户身份
-    const token = request.headers.get('authorization')?.replace('Bearer ', '');
+    const token = getBearerToken(request);
     let userId: string | null = null;
 
     if (token) {
@@ -288,9 +289,10 @@ export async function POST(request: NextRequest) {
     
     const stream = new ReadableStream({
       async start(controller) {
+        const sendEvent = createSSEWriter(controller, encoder);
         try {
           // 发送开始信号
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'start' })}\n\n`));
+          sendEvent({ type: 'start' });
 
           let iterations = 0;
 
@@ -353,19 +355,16 @@ export async function POST(request: NextRequest) {
 
             if (!parsed) {
               // 纯文本回复
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
-                type: 'text', 
-                content: assistantMessage 
-              })}\n\n`));
+              sendEvent({ type: 'text', content: assistantMessage });
 
               const extractedScripts = tryExtractScriptOptions(assistantMessage);
               if (extractedScripts) {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                sendEvent({
                   type: 'script_options',
                   content: '识别到脚本内容，已结构化展示',
                   data: extractedScripts,
                   source: 'text_extractor'
-                })}\n\n`));
+                });
               }
               controller.close(); // 🔧 修复：必须关闭流，前端才能收到 done 事件
               break;
@@ -423,20 +422,12 @@ export async function POST(request: NextRequest) {
               console.log(`📦 [Agent] 参数:`, toolParams);
 
               // 发送工具调用开始
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
-                type: 'tool_start', 
-                tool: toolName, 
-                params: toolParams 
-              })}\n\n`));
+              sendEvent({ type: 'tool_start', tool: toolName, params: toolParams });
 
               // 检查工具是否存在
               if (!(toolName in tools)) {
                 const errorResult = { error: `未知工具: ${toolName}` };
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
-                  type: 'tool_result', 
-                  tool: toolName, 
-                  result: errorResult 
-                })}\n\n`));
+                sendEvent({ type: 'tool_result', tool: toolName, result: errorResult });
                 
                 messages.push({
                   role: 'user',
@@ -459,11 +450,7 @@ export async function POST(request: NextRequest) {
                 }
 
                 // 发送结果
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
-                  type: 'tool_result', 
-                  tool: toolName, 
-                  result 
-                })}\n\n`));
+                sendEvent({ type: 'tool_result', tool: toolName, result });
 
                 // 添加反馈
                 messages.push({
@@ -472,11 +459,7 @@ export async function POST(request: NextRequest) {
                 });
               } catch (toolError) {
                 const errorResult = { error: toolError instanceof Error ? toolError.message : '工具执行失败' };
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
-                  type: 'tool_result', 
-                  tool: toolName, 
-                  result: errorResult 
-                })}\n\n`));
+                sendEvent({ type: 'tool_result', tool: toolName, result: errorResult });
                 
                 messages.push({
                   role: 'user',
@@ -489,7 +472,7 @@ export async function POST(request: NextRequest) {
 
             // 结构化响应（video_analysis, script_options, task 等）
             if (['video_analysis', 'script_options', 'task_submitted', 'task_done', 'error'].includes(parsed.type)) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(parsed)}\n\n`));
+              sendEvent(parsed);
               
               // 如果是 done 或 error，结束对话
               if (parsed.type === 'task_done' || parsed.type === 'error') {
@@ -501,10 +484,7 @@ export async function POST(request: NextRequest) {
 
             // 纯文本回复
             if (parsed.type === 'text' || parsed.content) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
-                type: 'text', 
-                content: parsed.content || assistantMessage 
-              })}\n\n`));
+              sendEvent({ type: 'text', content: parsed.content || assistantMessage });
               
               // 检查是否应该结束
               if (iterations >= 3 && parsed.type === 'text') {
@@ -515,10 +495,7 @@ export async function POST(request: NextRequest) {
             }
 
             // 未知格式，发送原始文本
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
-              type: 'text', 
-              content: assistantMessage 
-            })}\n\n`));
+            sendEvent({ type: 'text', content: assistantMessage });
             controller.close(); // 🔧 修复：必须关闭流
             break;
           }
@@ -532,10 +509,7 @@ export async function POST(request: NextRequest) {
           
         } catch (error) {
           console.error('❌ [Agent] 错误:', error);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
-            type: 'error', 
-            content: error instanceof Error ? error.message : '发生错误' 
-          })}\n\n`));
+          sendEvent({ type: 'error', content: error instanceof Error ? error.message : '发生错误' });
         }
         
         // 🔧 修复：确保流在循环结束后关闭
@@ -606,8 +580,7 @@ export async function GET(request: NextRequest) {
 
     console.log(`📔 [API] 返回 ${historyData?.length || 0} 条历史消息给前端`);
 
-    return Response.json({
-      success: true,
+    return ok({
       data: {
         conversationHistory: historyData || [],
         userPreferences: preferencesData || []
