@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -129,6 +130,8 @@ export default function ProductLibraryPage() {
   const [realAssets, setRealAssets] = useState<RealAsset[]>([]);
   const [realAssetsLoading, setRealAssetsLoading] = useState(false);
   const [realAssetKeyword, setRealAssetKeyword] = useState('');
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 300);
+  const debouncedRealAssetKeyword = useDebouncedValue(realAssetKeyword, 300);
 
   // 加载商品列表
   const loadProducts = useCallback(async () => {
@@ -136,8 +139,8 @@ export default function ProductLibraryPage() {
 
     setLoading(true);
     try {
-      const url = searchQuery
-        ? `/api/product-library?search=${encodeURIComponent(searchQuery)}`
+      const url = debouncedSearchQuery
+        ? `/api/product-library?search=${encodeURIComponent(debouncedSearchQuery)}`
         : '/api/product-library';
 
       const response = await fetch(url, {
@@ -154,15 +157,15 @@ export default function ProductLibraryPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, searchQuery]);
+  }, [token, debouncedSearchQuery]);
 
   const loadRealAssets = useCallback(async () => {
     if (!token) return;
     setRealAssetsLoading(true);
     try {
       const params = new URLSearchParams({ status: 'all' });
-      if (realAssetKeyword.trim()) {
-        params.set('keyword', realAssetKeyword.trim());
+      if (debouncedRealAssetKeyword.trim()) {
+        params.set('keyword', debouncedRealAssetKeyword.trim());
       }
       const response = await fetch(`/api/real-assets?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -179,7 +182,7 @@ export default function ProductLibraryPage() {
     } finally {
       setRealAssetsLoading(false);
     }
-  }, [token, realAssetKeyword]);
+  }, [token, debouncedRealAssetKeyword]);
 
   useEffect(() => {
     loadProducts();
