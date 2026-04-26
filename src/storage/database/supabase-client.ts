@@ -89,7 +89,9 @@ export interface QueryBuilder<T = unknown> {
   like(column: string, pattern: string): QueryBuilder<T>;
   ilike(column: string, pattern: string): QueryBuilder<T>;
   in(column: string, values: unknown[]): QueryBuilder<T>;
+  contains(column: string, value: unknown): QueryBuilder<T>;
   is(column: string, value: unknown): QueryBuilder<T>;
+  filter(column: string, operator: string, value: unknown): QueryBuilder<T>;
   or(filters: string): QueryBuilder<T>;
   not(column: string, op: string, value: unknown): QueryBuilder<T>;
   textSearch(column: string, query: string): QueryBuilder<T>;
@@ -222,8 +224,40 @@ class QueryBuilderImpl<T extends Record<string, unknown> = Record<string, unknow
     return this;
   }
 
+  contains(column: string, value: unknown): QueryBuilder<T> {
+    // Supabase contains => PostgreSQL jsonb contains (@>)
+    return this.filter(column, 'cs', value);
+  }
+
   is(column: string, value: unknown): QueryBuilder<T> {
     this.whereConditions.push({ column, operator: 'IS', value });
+    return this;
+  }
+
+  filter(column: string, operator: string, value: unknown): QueryBuilder<T> {
+    const normalized = operator.toLowerCase();
+    if (normalized === 'cs') {
+      this.whereConditions.push({ column, operator: '@>', value });
+      return this;
+    }
+
+    if (['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike'].includes(normalized)) {
+      const map: Record<string, string> = {
+        eq: '=',
+        neq: '!=',
+        gt: '>',
+        gte: '>=',
+        lt: '<',
+        lte: '<=',
+        like: 'LIKE',
+        ilike: 'ILIKE',
+      };
+      this.whereConditions.push({ column, operator: map[normalized], value });
+      return this;
+    }
+
+    // Fallback for custom operators
+    this.whereConditions.push({ column, operator, value });
     return this;
   }
 
@@ -335,6 +369,13 @@ class QueryBuilderImpl<T extends Record<string, unknown> = Record<string, unknow
         const placeholders = cond.value.map((_, i) => `$${paramIndex + whereParts.length + i}`).join(', ');
         whereParts.push(`"${cond.column}" IN (${placeholders})`);
         params.push(...cond.value);
+      } else if (cond.operator === '@>') {
+        whereParts.push(`"${cond.column}" @> $${paramIndex + whereParts.length}::jsonb`);
+        if (typeof cond.value === 'string') {
+          params.push(cond.value);
+        } else {
+          params.push(JSON.stringify(cond.value));
+        }
       } else if (cond.operator === 'IS' && cond.value === null) {
         whereParts.push(`"${cond.column}" IS NULL`);
       } else if (cond.operator === 'IS' && cond.value === 'NOT NULL') {
