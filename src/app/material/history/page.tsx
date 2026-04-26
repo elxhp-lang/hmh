@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useAuth, usePermission } from '@/contexts/AuthContext';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -72,7 +72,6 @@ const CATEGORIES = [
 ];
 
 export default function MaterialHistoryPage() {
-  const searchParams = useSearchParams();
   const router = useRouter();
   const { token } = useAuth();
   const permission = usePermission();
@@ -144,14 +143,17 @@ export default function MaterialHistoryPage() {
 
   // 初始化：从 URL 恢复筛选状态（支持刷新后保留筛选）
   useEffect(() => {
-    const type = searchParams.get('type');
-    const status = searchParams.get('status');
-    const category = searchParams.get('category');
-    const version = searchParams.get('version');
-    const keywordParam = searchParams.get('keyword');
-    const tag = searchParams.get('tag');
-    const sourceVideoId = searchParams.get('sourceVideoId');
-    const pageParam = searchParams.get('page');
+    if (typeof window === 'undefined') return;
+
+    const params = new URLSearchParams(window.location.search);
+    const type = params.get('type');
+    const status = params.get('status');
+    const category = params.get('category');
+    const version = params.get('version');
+    const keywordParam = params.get('keyword');
+    const tag = params.get('tag');
+    const sourceVideoId = params.get('sourceVideoId');
+    const pageParam = params.get('page');
 
     if (type === 'personal' || type === 'team') setActiveTab(type);
     if (status) setStatusFilter(status);
@@ -169,6 +171,7 @@ export default function MaterialHistoryPage() {
   // 状态变更时同步到 URL（差异更新 + 防抖）
   useEffect(() => {
     if (!hasInitializedFromUrl.current) return;
+    if (typeof window === 'undefined') return;
 
     const params = new URLSearchParams();
     params.set('type', activeTab);
@@ -181,14 +184,16 @@ export default function MaterialHistoryPage() {
     if (page > 1) params.set('page', String(page));
 
     const nextQuery = params.toString();
-    const current = searchParams.toString();
+    const current = window.location.search.startsWith('?')
+      ? window.location.search.slice(1)
+      : window.location.search;
     if (nextQuery === current) return;
 
     if (urlSyncTimer.current) clearTimeout(urlSyncTimer.current);
     urlSyncTimer.current = setTimeout(() => {
       router.replace(`/material/history?${nextQuery}`);
     }, 120);
-  }, [activeTab, statusFilter, categoryFilter, versionFilter, keyword, tagKeyword, sourceVideoFilter, page, router, searchParams]);
+  }, [activeTab, statusFilter, categoryFilter, versionFilter, keyword, tagKeyword, sourceVideoFilter, page, router]);
 
   useEffect(() => {
     return () => {
