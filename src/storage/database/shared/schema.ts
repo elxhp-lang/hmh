@@ -39,6 +39,7 @@ export const videos = pgTable(
   {
     id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`), // video_id（我们系统生成的 UUID）
     user_id: varchar("user_id", { length: 36 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+    session_id: varchar("session_id", { length: 36 }).references(() => agentSessions.id, { onDelete: "set null" }),
     prompt: text("prompt").notNull(), // 视频生成提示词
     video_name: varchar("video_name", { length: 200 }), // 创意小海写的视频名称（用于多任务对应）
     script: text("script"), // 视频脚本
@@ -80,6 +81,7 @@ export const videos = pgTable(
   },
   (table) => [
     index("videos_user_id_idx").on(table.user_id),
+    index("videos_session_id_idx").on(table.session_id),
     index("videos_status_idx").on(table.status),
     index("videos_created_at_idx").on(table.created_at),
     index("videos_tos_key_idx").on(table.tos_key),
@@ -431,12 +433,14 @@ export const agentConversationMessages = pgTable(
   {
     id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
     user_id: varchar("user_id", { length: 36 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+    session_id: varchar("session_id", { length: 36 }).references(() => agentSessions.id, { onDelete: "set null" }),
     role: varchar("role", { length: 20 }).notNull(), // user/assistant
     content: text("content").notNull(),
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index("idx_conv_messages_user").on(table.user_id),
+    index("idx_conv_messages_session").on(table.session_id),
     index("idx_conv_messages_created").on(table.created_at),
   ]
 );

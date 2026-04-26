@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
     const sourceVideoId = normalizeText(searchParams.get('sourceVideoId'));
     const targetVideoId = normalizeText(searchParams.get('id'));
     const targetUserId = normalizeText(searchParams.get('userId'));
+    const sessionId = normalizeText(searchParams.get('sessionId'));
 
     const client = getSupabaseClient();
     const offset = (page - 1) * limit;
@@ -79,6 +80,7 @@ export async function GET(request: NextRequest) {
       .select(`
         id,
         user_id,
+        session_id,
         task_id,
         prompt,
         script,
@@ -147,6 +149,10 @@ export async function GET(request: NextRequest) {
       videoQuery = videoQuery.eq('id', targetVideoId);
     }
 
+    if (sessionId) {
+      videoQuery = videoQuery.eq('session_id', sessionId);
+    }
+
     // 不分页，获取所有数据（后续合并后再分页）
     const { data: videosData, error: videosError } = await videoQuery;
 
@@ -187,6 +193,7 @@ export async function GET(request: NextRequest) {
     const mergedVideos: Array<{
       id: string;
       user_id: string;
+      session_id?: string | null;
       task_id?: string | null;
       prompt: string;
       script?: string | null;
@@ -229,6 +236,7 @@ export async function GET(request: NextRequest) {
           mergedVideos.push({
             id: v.id,
             user_id: v.user_id,
+            session_id: (v.session_id as string) || null,
             task_id: v.task_id as string,
             prompt: (v.prompt as string) || '视频生成任务',
             script: (v.script as string) || null,

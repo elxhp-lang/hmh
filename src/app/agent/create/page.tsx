@@ -10,6 +10,13 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { 
   Sparkles, 
   Loader2, 
@@ -188,6 +195,15 @@ interface Message {
   attachments?: Array<{ type: string; url: string; name?: string }>;
 }
 
+interface CreativeSession {
+  id: string;
+  title: string;
+  status: string;
+  message_count?: number;
+  last_message_at?: string;
+  created_at?: string;
+}
+
 // ========== 工具函数 ==========
 // 生成唯一的 ID，确保不会出现重复
 let idCounter = 0;
@@ -323,6 +339,8 @@ export default function CreativeAgentPageNew() {
   const { token, user } = useAuth();
   
   const [messages, setMessages] = useState<Message[]>([]);
+  const [sessions, setSessions] = useState<CreativeSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isClient, setIsClient] = useState(false);
   
@@ -399,6 +417,7 @@ export default function CreativeAgentPageNew() {
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const conversationHistory = useRef<Array<{ role: string; content: string }>>([]);
+  const streamingMessageIdRef = useRef<string | null>(null);
   
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -408,6 +427,24 @@ export default function CreativeAgentPageNew() {
     setIsClient(true);
   }, []);
 
+  const loadSessions = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/xiaohai/agent/chat?listSessions=1', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const nextSessions = (data?.data?.sessions || []) as CreativeSession[];
+      setSessions(nextSessions);
+      if (!activeSessionId && nextSessions.length > 0) {
+        setActiveSessionId(nextSessions[0].id);
+      }
+    } catch (error) {
+      console.error('加载会话列表失败:', error);
+    }
+  }, [token, activeSessionId]);
+
   // ========== 双笔记本系统：加载历史消息 ==========
   useEffect(() => {
     if (!user?.user_id || !token) return;
@@ -415,7 +452,8 @@ export default function CreativeAgentPageNew() {
     const fetchHistory = async () => {
       try {
         addDebugLog('api', '加载对话历史开始', { userId: user.user_id });
-        const historyRes = await fetch('/api/xiaohai/agent/chat', {
+        const qs = activeSessionId ? `?sessionId=${activeSessionId}` : '';
+        const historyRes = await fetch(`/api/xiaohai/agent/chat${qs}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         
@@ -464,6 +502,9 @@ export default function CreativeAgentPageNew() {
             // 更新 messages 状态
             setMessages(historyMessages);
             addDebugLog('state', '更新 messages 状态', { count: historyMessages.length });
+            if (!activeSessionId && historyData.data?.sessionId) {
+              setActiveSessionId(historyData.data.sessionId);
+            }
           } else {
             addDebugLog('api', '加载对话历史失败：无数据', historyData);
           }
@@ -477,7 +518,12 @@ export default function CreativeAgentPageNew() {
     };
     
     fetchHistory();
-  }, [user?.user_id, token]);
+  }, [user?.user_id, token, activeSessionId]);
+
+  useEffect(() => {
+    if (!user?.user_id || !token) return;
+    loadSessions();
+  }, [user?.user_id, token, loadSessions]);
 
   // 获取右侧数据
   useEffect(() => {
@@ -486,16 +532,17 @@ export default function CreativeAgentPageNew() {
     const fetchData = async () => {
       try {
         // 获取历史任务
-        const historyRes = await fetch('/api/video/history?limit=5', {
+        const sessionQuery = activeSessionId ? `&sessionId=${activeSessionId}` : '';
+        const historyRes = await fetch(`/api/material/history?type=personal&limit=8${sessionQuery}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (historyRes.ok) {
           const historyData = await historyRes.json();
-          setHistory(historyData.videos?.slice(0, 5).map((v: any) => ({
-            id: v.task_id || v.id,
+          setHistory(historyData.videos?.slice(0, 8).map((v: any) => ({
+            id: v.id,
             title: v.prompt?.substring(0, 20) || '视频创作',
-            thumbnail: v.result_url || v.cover_url,
-            status: v.status === 'succeeded' ? 'completed' : 'processing',
+            thumbnail: v.video_url || v.result_url || v.cover_url,
+            status: v.status === 'completed' || v.status === 'succeeded' ? 'completed' : 'processing',
             createdAt: new Date(v.created_at)
           })) || []);
         }
@@ -520,7 +567,7 @@ export default function CreativeAgentPageNew() {
     };
     
     fetchData();
-  }, [user?.user_id, token]);
+  }, [user?.user_id, token, activeSessionId]);
 
   // ========== 方案一：视频完成通知轮询 ==========
   useEffect(() => {
@@ -638,6 +685,7 @@ export default function CreativeAgentPageNew() {
       message: text,
       attachments: apiAttachments,
       history: conversationHistory.current,
+      sessionId: activeSessionId,
       webSearchEnabled  // 联网搜索开关
     };
     
@@ -657,18 +705,30 @@ export default function CreativeAgentPageNew() {
           switch (event.type) {
             case 'start':
               currentText = '';
+              streamingMessageIdRef.current = generateId('stream');
+              if (event.data && typeof event.data === 'object' && 'sessionId' in event.data) {
+                const sid = (event.data as { sessionId?: unknown }).sessionId;
+                if (typeof sid === 'string' && sid) {
+                  setActiveSessionId((prev) => prev || sid);
+                }
+              }
               break;
               
             case 'content':
             case 'text':
               currentText += event.content || '';
               setMessages(prev => {
-                const lastMsg = prev[prev.length - 1];
-                if (lastMsg?.type === 'assistant' && lastMsg.id === 'streaming') {
-                  return [...prev.slice(0, -1), { ...lastMsg, content: currentText }];
+                const streamingId = streamingMessageIdRef.current;
+                const exists = streamingId ? prev.some((m) => m.id === streamingId) : false;
+                if (exists && streamingId) {
+                  return prev.map((msg) =>
+                    msg.id === streamingId ? { ...msg, content: currentText } : msg
+                  );
                 } else {
+                  const nextId = streamingId || generateId('stream');
+                  streamingMessageIdRef.current = nextId;
                   return [...prev, {
-                    id: 'streaming',
+                    id: nextId,
                     type: 'assistant' as const,
                     content: currentText,
                     timestamp: new Date()
@@ -716,7 +776,9 @@ export default function CreativeAgentPageNew() {
               
               // 更新历史记录
               conversationHistory.current.push({ role: 'user', content: text });
-              conversationHistory.current.push({ role: 'assistant', content: currentText });
+              if (currentText.trim()) {
+                conversationHistory.current.push({ role: 'assistant', content: currentText });
+              }
               addDebugLog('state', '更新 conversationHistory', { 
                 totalLength: conversationHistory.current.length 
               });
@@ -747,6 +809,8 @@ export default function CreativeAgentPageNew() {
               // 原：显示视频卡片，但无法更新状态，无实际用途
               
               setIsLoading(false);
+              streamingMessageIdRef.current = null;
+              loadSessions();
               break;
           }
         }
@@ -754,6 +818,7 @@ export default function CreativeAgentPageNew() {
     } catch (error) {
       console.error('发送消息失败:', error);
       setIsLoading(false);
+      streamingMessageIdRef.current = null;
     }
   };
 
@@ -946,6 +1011,36 @@ export default function CreativeAgentPageNew() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <Select
+                value={activeSessionId || undefined}
+                onValueChange={(value) => {
+                  setActiveSessionId(value);
+                  setMessages([]);
+                  conversationHistory.current = [];
+                }}
+              >
+                <SelectTrigger className="w-[240px] h-8">
+                  <SelectValue placeholder="选择会话" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sessions.map((session) => (
+                    <SelectItem key={session.id} value={session.id}>
+                      {session.title || session.id.slice(0, 8)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setActiveSessionId(null);
+                  setMessages([]);
+                  conversationHistory.current = [];
+                }}
+              >
+                新会话
+              </Button>
               <Badge variant="outline" className="text-xs">
                 <span className="w-2 h-2 rounded-full bg-green-500 mr-1" />
                 在线
@@ -970,7 +1065,7 @@ export default function CreativeAgentPageNew() {
                       url: a.url,
                       name: a.name
                     })),
-                    isStreaming: m.id === 'streaming'
+                    isStreaming: m.id.startsWith('stream_')
                   }))}
                 />
                 

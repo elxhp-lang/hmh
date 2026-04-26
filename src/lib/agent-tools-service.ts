@@ -57,6 +57,7 @@ export class AgentToolsService {
   private _imageAnalysisService: ImageAnalysisService | null = null;
   private _imageGenerationService: ImageGenerationService | null = null;
   private currentUserId: string | null = null;
+  private currentSessionId: string | null = null;
   private webSearchEnabled: boolean = false;
   private _searchClient: SearchClient | null = null;
 
@@ -159,6 +160,10 @@ export class AgentToolsService {
    */
   setUserId(userId: string | null) {
     this.currentUserId = userId;
+  }
+
+  setSessionId(sessionId: string | null) {
+    this.currentSessionId = sessionId;
   }
 
   private getUserId(): string {
@@ -504,6 +509,7 @@ export class AgentToolsService {
         id: videoId,                          // 我们的 video_id
         task_id: seedanceTaskId,             // Seedance 的 task_id（保存到 task_id 字段）
         user_id: userId,
+        session_id: this.currentSessionId,
         prompt,
         task_type: options?.reference_video ? 'multi_modal' : (firstFrameUrl ? 'image_to_video' : 'text_to_video'),
         status: 'processing',

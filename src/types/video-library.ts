@@ -1,6 +1,7 @@
 export interface VideoLibraryItem {
   id: string;
   user_id: string;
+  session_id?: string | null;
   task_id?: string;
   video_id?: string;
   seedance_task_id?: string;

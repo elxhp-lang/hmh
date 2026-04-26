@@ -82,6 +82,7 @@ export async function POST(request: NextRequest) {
       referenceAudios = [],
       sourceVideoId,
       sourceTaskId,
+      sessionId,
       isRemix = false,
       ratio = '16:9',
       duration = 5,
@@ -137,6 +138,7 @@ export async function POST(request: NextRequest) {
         web_search: webSearch,
         source_video_id: normalizeText(sourceVideoId) || null,
         source_task_id: normalizeText(sourceTaskId) || null,
+        session_id: normalizeText(sessionId) || null,
         is_remix: Boolean(isRemix),
         status: 'processing',
       })

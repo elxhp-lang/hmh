@@ -51,11 +51,17 @@ function checkRateLimit(userId: string): { allowed: boolean; retryAfterSeconds: 
 
 // ========== 双笔记本系统：辅助函数 ==========
 
-async function saveConversationMessage(userId: string, role: 'user' | 'assistant', content: string): Promise<void> {
+async function saveConversationMessage(
+  userId: string,
+  sessionId: string,
+  role: 'user' | 'assistant',
+  content: string
+): Promise<void> {
   try {
     const supabase = getSupabaseClient();
     await supabase.from('agent_conversation_messages').insert({
       user_id: userId,
+      session_id: sessionId,
       role: role,
       content: content
     });
@@ -63,6 +69,47 @@ async function saveConversationMessage(userId: string, role: 'user' | 'assistant
   } catch (error) {
     console.error('❌ [笔记本1号] 保存消息失败:', error);
   }
+}
+
+async function ensureCreativeSession(userId: string, preferredSessionId?: string | null) {
+  const supabase = getSupabaseClient();
+  if (preferredSessionId) {
+    const { data: existing } = await supabase
+      .from('agent_sessions')
+      .select('id,user_id,agent_type,status,title,message_count')
+      .eq('id', preferredSessionId)
+      .eq('user_id', userId)
+      .eq('agent_type', 'creative')
+      .single();
+    if (existing) return existing as any;
+  }
+
+  const { data: latest } = await supabase
+    .from('agent_sessions')
+    .select('id,user_id,agent_type,status,title,message_count,last_message_at,created_at')
+    .eq('user_id', userId)
+    .eq('agent_type', 'creative')
+    .eq('status', 'active')
+    .order('last_message_at', { ascending: false })
+    .limit(1);
+  if (latest && latest.length > 0) return latest[0] as any;
+
+  const { data: created, error } = await supabase
+    .from('agent_sessions')
+    .insert({
+      user_id: userId,
+      agent_type: 'creative',
+      title: `创意会话 ${new Date().toLocaleString('zh-CN')}`,
+      status: 'active',
+      message_count: 0,
+      last_message_at: new Date().toISOString(),
+    })
+    .select('id,user_id,agent_type,status,title,message_count,last_message_at,created_at')
+    .single();
+  if (error || !created) {
+    throw new Error(`创建会话失败: ${error?.message || '未知错误'}`);
+  }
+  return created as any;
 }
 
 // ========== 动态系统提示词 ==========
@@ -174,7 +221,7 @@ export async function POST(request: NextRequest) {
 
     // 2. 解析请求
     const body = await request.json();
-    const { message, attachments, webSearchEnabled = false } = body;
+    const { message, attachments, webSearchEnabled = false, history = [], sessionId } = body;
 
     // 设置联网搜索开关
     toolsService.setWebSearchEnabled(webSearchEnabled);
@@ -182,6 +229,10 @@ export async function POST(request: NextRequest) {
     console.log('🤖 [Agent] 用户消息:', message?.substring(0, 100));
     console.log('📎 [Agent] 附件:', attachments?.length || 0);
     console.log('🔍 [Agent] 联网搜索:', webSearchEnabled ? '开启' : '关闭');
+
+    // 会话确保（断点重续核心）
+    const session = userId ? await ensureCreativeSession(userId, sessionId || null) : null;
+    toolsService.setSessionId(session?.id || null);
 
     // ========== 双笔记本系统：加载记忆 ==========
     const supabase = getSupabaseClient();
@@ -194,7 +245,7 @@ export async function POST(request: NextRequest) {
         .from('agent_conversation_messages')
         .select('*')
         .eq('user_id', userId)
-        .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+        .eq('session_id', session?.id)
         .order('created_at', { ascending: true }); // 正序（最早→最近），用于前端显示
 
       conversationHistory = historyData || [];
@@ -256,7 +307,18 @@ export async function POST(request: NextRequest) {
     
     // ========== 笔记本1号：对话历史（倒序给AI）==========
     // AI看到的是倒序（最近的在最上面）
-    if (conversationHistory.length > 0) {
+    const normalizedClientHistory = Array.isArray(history)
+      ? history
+          .filter((item: any) => item && (item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string')
+          .slice(-20)
+      : [];
+
+    if (normalizedClientHistory.length > 0) {
+      for (const msg of normalizedClientHistory) {
+        messages.push({ role: msg.role, content: msg.content });
+      }
+      console.log(`📔 [笔记本1号] 使用前端会话历史 ${normalizedClientHistory.length} 条`);
+    } else if (conversationHistory.length > 0) {
       const reversedHistory = [...conversationHistory].reverse(); // 倒序
       for (const msg of reversedHistory) {
         if (msg.role === 'user') {
@@ -282,7 +344,7 @@ export async function POST(request: NextRequest) {
 
     // ========== 笔记本1号：保存用户消息 ==========
     if (userId) {
-      await saveConversationMessage(userId, 'user', userMessageContent);
+      await saveConversationMessage(userId, session!.id, 'user', userMessageContent);
     }
 
     // 7. 创建流式响应
@@ -293,7 +355,7 @@ export async function POST(request: NextRequest) {
         const sendEvent = createSSEWriter(controller, encoder);
         try {
           // 发送开始信号
-          sendEvent({ type: 'start' });
+          sendEvent({ type: 'start', data: { sessionId: session?.id || null } });
 
           let iterations = 0;
 
@@ -324,7 +386,7 @@ export async function POST(request: NextRequest) {
 
             // ========== 笔记本1号：保存AI回复 ==========
             if (userId) {
-              await saveConversationMessage(userId, 'assistant', assistantMessage);
+              await saveConversationMessage(userId, session!.id, 'assistant', assistantMessage);
             }
 
             // ========== LLM 响应日志 ==========
@@ -563,14 +625,35 @@ export async function GET(request: NextRequest) {
       }, { status: 401 });
     }
 
+    const { searchParams } = new URL(request.url);
+    const listSessions = searchParams.get('listSessions') === '1';
+    const sessionId = searchParams.get('sessionId');
+
+    if (listSessions) {
+      const supabase = getSupabaseClient();
+      const { data: sessions } = await supabase
+        .from('agent_sessions')
+        .select('id,title,status,message_count,last_message_at,created_at')
+        .eq('user_id', userId)
+        .eq('agent_type', 'creative')
+        .order('last_message_at', { ascending: false })
+        .limit(50);
+      return ok({ data: { sessions: sessions || [] } });
+    }
+
     // 2. 查询对话历史（最近24小时，正序）
     const supabase = getSupabaseClient();
-    const { data: historyData } = await supabase
+    let historyQuery = supabase
       .from('agent_conversation_messages')
       .select('*')
       .eq('user_id', userId)
-      .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-      .order('created_at', { ascending: true }); // 正序（最早→最近）
+      .order('created_at', { ascending: true });
+    if (sessionId) {
+      historyQuery = historyQuery.eq('session_id', sessionId);
+    } else {
+      historyQuery = historyQuery.gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+    }
+    const { data: historyData } = await historyQuery;
 
     // 3. 查询用户偏好
     const { data: preferencesData } = await supabase
@@ -584,7 +667,8 @@ export async function GET(request: NextRequest) {
     return ok({
       data: {
         conversationHistory: historyData || [],
-        userPreferences: preferencesData || []
+        userPreferences: preferencesData || [],
+        sessionId: sessionId || null,
       }
     });
 
