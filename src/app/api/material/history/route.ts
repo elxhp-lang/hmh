@@ -132,7 +132,8 @@ export async function GET(request: NextRequest) {
 
     // 标签精确筛选（jsonb 数组包含）
     if (tag && tag.trim()) {
-      videoQuery = videoQuery.contains('tags', [tag.trim()]);
+      const safeTag = tag.trim().replace(/"/g, '\\"');
+      videoQuery = videoQuery.filter('tags', 'cs', `["${safeTag}"]`);
     }
 
     // 版本筛选
