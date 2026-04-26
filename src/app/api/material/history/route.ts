@@ -84,6 +84,10 @@ export async function GET(request: NextRequest) {
         user_id,
         task_id,
         prompt,
+        script,
+        copywriting,
+        tags,
+        category,
         task_type,
         status,
         tos_key,
@@ -159,6 +163,10 @@ export async function GET(request: NextRequest) {
       user_id: string;
       task_id?: string | null;
       prompt: string;
+      script?: string | null;
+      copywriting?: string | null;
+      tags?: string[] | null;
+      category?: string | null;
       task_type: string;
       status: string;
       tos_key: string | null;
@@ -188,6 +196,10 @@ export async function GET(request: NextRequest) {
             user_id: v.user_id,
             task_id: v.task_id as string,
             prompt: (v.prompt as string) || '视频生成任务',
+            script: (v.script as string) || null,
+            copywriting: (v.copywriting as string) || null,
+            tags: (v.tags as string[]) || [],
+            category: (v.category as string) || null,
             task_type: v.task_type || 'text_to_video',
             status: v.status || 'completed',
             tos_key: v.tos_key,

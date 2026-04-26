@@ -38,6 +38,7 @@ import {
   Package,
   Users,
   Copy,
+  Sparkles,
 } from 'lucide-react';
 
 interface VideoItem {
@@ -63,6 +64,7 @@ interface VideoItem {
   error_reason?: string;
   created_at: string;
   model?: string;
+  source?: 'videos' | 'learning_library';
   users: {
     id: string;
     username: string;
@@ -137,6 +139,7 @@ export default function MaterialHistoryPage() {
   const [page, setPage] = useState(1);
   const [syncToast, setSyncToast] = useState<string | null>(null);
   const [selectedVideo, setSelectedVideo] = useState<VideoItem | null>(null);
+  const [remixingIds, setRemixingIds] = useState<Set<string>>(new Set());
   const [materialTab, setMaterialTab] = useState<'videos' | 'products' | 'actors'>('videos');
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
@@ -324,6 +327,64 @@ export default function MaterialHistoryPage() {
     setTimeout(() => setSyncToast(null), 3000);
   };
 
+  const handleRemix = async (video: VideoItem) => {
+    if (!token) return;
+    const sourceVideoUrl = video.public_video_url || video.video_url;
+    if (!sourceVideoUrl) {
+      setSyncToast('该素材缺少可用视频链接，无法 REMIX');
+      setTimeout(() => setSyncToast(null), 3000);
+      return;
+    }
+
+    if (remixingIds.has(video.id)) return;
+
+    setRemixingIds((prev) => {
+      const next = new Set(prev);
+      next.add(video.id);
+      return next;
+    });
+
+    try {
+      const remixPrompt = (video.script && video.script.trim()) || (video.prompt && video.prompt.trim()) || '保持原视频核心内容，优化节奏与镜头表现';
+      const response = await fetch('/api/video/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          taskType: 'generate',
+          prompt: remixPrompt,
+          referenceVideos: [sourceVideoUrl],
+          ratio: video.ratio || '16:9',
+          duration: video.duration || 5,
+          model: video.model || 'doubao-seedance-2-0-260128',
+          generateAudio: true,
+          watermark: false,
+          webSearch: false,
+        }),
+      });
+
+      const result = await response.json();
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || 'REMIX 提交失败');
+      }
+
+      setSyncToast('REMIX 已提交，正在生成中');
+      loadHistory();
+    } catch (error) {
+      console.error('REMIX 失败:', error);
+      setSyncToast(error instanceof Error ? error.message : 'REMIX 提交失败');
+    } finally {
+      setRemixingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(video.id);
+        return next;
+      });
+      setTimeout(() => setSyncToast(null), 3000);
+    }
+  };
+
   // 判断是否是新生成（1小时内）
   const isNewlyCreated = (createdAt: string) => {
     const created = new Date(createdAt).getTime();
@@ -488,6 +549,8 @@ export default function MaterialHistoryPage() {
                     showUser={false}
                     getModelName={getModelName}
                     isNewlyCreated={isNewlyCreated}
+                    onRemix={handleRemix}
+                    remixingIds={remixingIds}
                   />
                 </TabsContent>
 
@@ -503,6 +566,8 @@ export default function MaterialHistoryPage() {
                     showUser={true}
                     getModelName={getModelName}
                     isNewlyCreated={isNewlyCreated}
+                    onRemix={handleRemix}
+                    remixingIds={remixingIds}
                   />
                 </TabsContent>
               </Tabs>
@@ -518,6 +583,8 @@ export default function MaterialHistoryPage() {
                 showUser={false}
                 getModelName={getModelName}
                 isNewlyCreated={isNewlyCreated}
+                onRemix={handleRemix}
+                remixingIds={remixingIds}
               />
             )}
 
@@ -874,6 +941,8 @@ function VideoGrid({
   showUser,
   getModelName,
   isNewlyCreated,
+  onRemix,
+  remixingIds,
 }: {
   loading: boolean;
   videos: VideoItem[];
@@ -885,6 +954,8 @@ function VideoGrid({
   showUser: boolean;
   getModelName: (model?: string) => string;
   isNewlyCreated: (createdAt: string) => boolean;
+  onRemix: (video: VideoItem) => void;
+  remixingIds: Set<string>;
 }) {
   if (loading) {
     return (
@@ -1046,6 +1117,20 @@ function VideoGrid({
                 >
                   <BookOpen className="h-3 w-3 mr-1" />
                   存到学习库
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1 min-w-[80px]"
+                  onClick={() => onRemix(video)}
+                  disabled={remixingIds.has(video.id)}
+                >
+                  {remixingIds.has(video.id) ? (
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3 w-3 mr-1" />
+                  )}
+                  REMIX
                 </Button>
                 <Button
                   size="sm"

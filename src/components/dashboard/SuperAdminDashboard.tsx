@@ -220,8 +220,8 @@ export function SuperAdminDashboard({ token }: SuperAdminDashboardProps) {
               <TrendingUp className="h-5 w-5 text-cyan-600" />
             </div>
             <div>
-              <p className="font-medium text-sm">素材历史</p>
-              <p className="text-xs text-muted-foreground">查看所有素材</p>
+              <p className="font-medium text-sm">素材中心</p>
+              <p className="text-xs text-muted-foreground">统一管理素材资产</p>
             </div>
           </a>
           <a
