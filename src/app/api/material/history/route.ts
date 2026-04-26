@@ -47,6 +47,7 @@ export async function GET(request: NextRequest) {
     const tag = searchParams.get('tag');
     const version = searchParams.get('version') || 'all';
     const sourceVideoId = searchParams.get('sourceVideoId');
+    const targetVideoId = searchParams.get('id');
     const targetUserId = searchParams.get('userId');
 
     const client = getSupabaseClient();
@@ -145,6 +146,10 @@ export async function GET(request: NextRequest) {
 
     if (sourceVideoId && sourceVideoId.trim()) {
       videoQuery = videoQuery.eq('source_video_id', sourceVideoId.trim());
+    }
+
+    if (targetVideoId && targetVideoId.trim()) {
+      videoQuery = videoQuery.eq('id', targetVideoId.trim());
     }
 
     // 不分页，获取所有数据（后续合并后再分页）

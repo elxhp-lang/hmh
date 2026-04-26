@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth, usePermission } from '@/contexts/AuthContext';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -105,6 +106,8 @@ const CATEGORIES = [
 ];
 
 export default function MaterialHistoryPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const { token } = useAuth();
   const permission = usePermission();
 
@@ -129,6 +132,43 @@ export default function MaterialHistoryPage() {
   
   // 团队视图的标签文字
   const teamTabLabel = permission.isAdmin ? '全部素材' : '团队素材';
+
+  // 初始化：从 URL 恢复筛选状态（支持刷新后保留筛选）
+  useEffect(() => {
+    const type = searchParams.get('type');
+    const status = searchParams.get('status');
+    const category = searchParams.get('category');
+    const version = searchParams.get('version');
+    const keywordParam = searchParams.get('keyword');
+    const tag = searchParams.get('tag');
+    const sourceVideoId = searchParams.get('sourceVideoId');
+    const pageParam = searchParams.get('page');
+
+    if (type === 'personal' || type === 'team') setActiveTab(type);
+    if (status) setStatusFilter(status);
+    if (category) setCategoryFilter(category);
+    if (version) setVersionFilter(version);
+    if (keywordParam !== null) setKeyword(keywordParam);
+    if (tag !== null) setTagKeyword(tag);
+    if (sourceVideoId !== null) setSourceVideoFilter(sourceVideoId);
+    if (pageParam && !Number.isNaN(Number(pageParam))) setPage(Math.max(1, Number(pageParam)));
+    // 只在初次挂载时同步一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 状态变更时同步到 URL，便于联测复现
+  useEffect(() => {
+    const params = new URLSearchParams();
+    params.set('type', activeTab);
+    if (statusFilter !== 'all') params.set('status', statusFilter);
+    if (categoryFilter !== 'all') params.set('category', categoryFilter);
+    if (versionFilter !== 'all') params.set('version', versionFilter);
+    if (keyword.trim()) params.set('keyword', keyword.trim());
+    if (tagKeyword.trim()) params.set('tag', tagKeyword.trim());
+    if (sourceVideoFilter.trim()) params.set('sourceVideoId', sourceVideoFilter.trim());
+    if (page > 1) params.set('page', String(page));
+    router.replace(`/material/history?${params.toString()}`);
+  }, [activeTab, statusFilter, categoryFilter, versionFilter, keyword, tagKeyword, sourceVideoFilter, page, router]);
 
   // 加载历史数据
   const loadHistory = useCallback(async () => {
@@ -226,6 +266,17 @@ export default function MaterialHistoryPage() {
   };
 
   const clearSourceVideoFilter = () => {
+    setSourceVideoFilter('');
+    setPage(1);
+  };
+
+  const resetAllFilters = () => {
+    setActiveTab('personal');
+    setStatusFilter('all');
+    setCategoryFilter('all');
+    setVersionFilter('all');
+    setKeyword('');
+    setTagKeyword('');
     setSourceVideoFilter('');
     setPage(1);
   };
@@ -352,6 +403,32 @@ export default function MaterialHistoryPage() {
       setTimeout(() => setSyncToast(null), 3000);
     }
   };
+
+  const handleOpenSourceVideo = useCallback(async (video: VideoItem) => {
+    if (!token || !video.source_video_id) return;
+    const source = videoById.get(video.source_video_id);
+    if (source) {
+      setSelectedVideo(source);
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/material/history?type=${activeTab}&id=${video.source_video_id}&limit=1`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await response.json();
+      if (response.ok && result?.success && Array.isArray(result.videos) && result.videos.length > 0) {
+        setSelectedVideo(result.videos[0] as VideoItem);
+        return;
+      }
+      setSyncToast(`未找到来源视频 ${video.source_video_id.slice(0, 8)}`);
+    } catch (error) {
+      console.error('加载来源视频失败:', error);
+      setSyncToast('加载来源视频失败，请稍后重试');
+    } finally {
+      setTimeout(() => setSyncToast(null), 2500);
+    }
+  }, [token, videoById, activeTab]);
 
   // 判断是否是新生成（1小时内）
   const isNewlyCreated = (createdAt: string) => {
@@ -500,6 +577,10 @@ export default function MaterialHistoryPage() {
                 </Button>
               )}
 
+              <Button variant="outline" onClick={resetAllFilters}>
+                重置筛选
+              </Button>
+
               <Button variant="outline" size="icon" onClick={loadHistory}>
                 <RefreshCw className="h-4 w-4" />
               </Button>
@@ -532,16 +613,7 @@ export default function MaterialHistoryPage() {
                     isNewlyCreated={isNewlyCreated}
                     onRemix={handleRemix}
                     remixingIds={remixingIds}
-                  onOpenSourceVideo={(video) => {
-                    if (!video.source_video_id) return;
-                    const source = videoById.get(video.source_video_id);
-                    if (source) {
-                      setSelectedVideo(source);
-                    } else {
-                      setSyncToast(`未在当前列表找到来源视频 ${video.source_video_id.slice(0, 8)}`);
-                      setTimeout(() => setSyncToast(null), 2500);
-                    }
-                  }}
+                    onOpenSourceVideo={handleOpenSourceVideo}
                   />
                 </TabsContent>
 
@@ -559,16 +631,7 @@ export default function MaterialHistoryPage() {
                     isNewlyCreated={isNewlyCreated}
                     onRemix={handleRemix}
                     remixingIds={remixingIds}
-                  onOpenSourceVideo={(video) => {
-                    if (!video.source_video_id) return;
-                    const source = videoById.get(video.source_video_id);
-                    if (source) {
-                      setSelectedVideo(source);
-                    } else {
-                      setSyncToast(`未在当前列表找到来源视频 ${video.source_video_id.slice(0, 8)}`);
-                      setTimeout(() => setSyncToast(null), 2500);
-                    }
-                  }}
+                    onOpenSourceVideo={handleOpenSourceVideo}
                   />
                 </TabsContent>
               </Tabs>
@@ -586,16 +649,7 @@ export default function MaterialHistoryPage() {
                 isNewlyCreated={isNewlyCreated}
                 onRemix={handleRemix}
                 remixingIds={remixingIds}
-                onOpenSourceVideo={(video) => {
-                  if (!video.source_video_id) return;
-                  const source = videoById.get(video.source_video_id);
-                  if (source) {
-                    setSelectedVideo(source);
-                  } else {
-                    setSyncToast(`未在当前列表找到来源视频 ${video.source_video_id.slice(0, 8)}`);
-                    setTimeout(() => setSyncToast(null), 2500);
-                  }
-                }}
+                onOpenSourceVideo={handleOpenSourceVideo}
               />
             )}
 
