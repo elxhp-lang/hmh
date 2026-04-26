@@ -106,7 +106,7 @@ export function MaterialMemberDashboard({ token, userId }: MaterialMemberDashboa
         {statCards.map((stat, index) => (
           <Card 
             key={index}
-            className="hover:shadow-md transition-shadow duration-200 overflow-hidden group"
+            className="hmh-shell-card hover:shadow-md transition-shadow duration-200 overflow-hidden group"
           >
             <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-primary/5 to-transparent rounded-bl-full" />
             <CardHeader className="flex flex-row items-center justify-between pb-2 relative">
@@ -124,7 +124,7 @@ export function MaterialMemberDashboard({ token, userId }: MaterialMemberDashboa
       </div>
 
       {/* 快捷操作 */}
-      <Card className="overflow-hidden">
+      <Card className="hmh-shell-card overflow-hidden">
         <div className="bg-gradient-to-r from-primary/5 via-accent/5 to-primary/5 h-1" />
         <CardHeader>
           <div className="flex items-center gap-2">

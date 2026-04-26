@@ -115,7 +115,7 @@ export function FinanceOverview() {
 
   if (loading) {
     return (
-      <Card>
+      <Card className="hmh-shell-card">
         <CardHeader className="pb-3">
           <Skeleton className="h-6 w-32" />
         </CardHeader>
@@ -129,7 +129,7 @@ export function FinanceOverview() {
 
   if (error) {
     return (
-      <Card className="border-destructive">
+      <Card className="hmh-shell-card border-destructive">
         <CardContent className="pt-6">
           <div className="flex items-center gap-2 text-destructive">
             <AlertCircle className="h-4 w-4" />
@@ -150,7 +150,7 @@ export function FinanceOverview() {
   };
 
   return (
-    <Card>
+    <Card className="hmh-shell-card">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium flex items-center gap-2">

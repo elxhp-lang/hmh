@@ -63,14 +63,14 @@
   --popover: oklch(0.99 0.005 250);
   --popover-foreground: oklch(0.17 0.02 250);
   /* 主色：火山蓝 #1E40AF / #3B82F6 */
-  --primary: oklch(0.45 0.20 250);      /* #1E40AF */
+  --primary: oklch(0.52 0.17 240);      /* 蓝色主色 */
   --primary-foreground: oklch(0.99 0.01 250);  /* 白色文字 */
   --secondary: oklch(0.96 0.02 250);
   --secondary-foreground: oklch(0.20 0.03 250);
   --muted: oklch(0.94 0.01 250);        /* #F1F5F9 */
   --muted-foreground: oklch(0.45 0.02 250);  /* #64748B */
   /* 强调色：科技青 #06B6D4 */
-  --accent: oklch(0.65 0.14 195);       /* #06B6D4 */
+  --accent: oklch(0.72 0.13 185);       /* 青绿强调 */
   --accent-foreground: oklch(0.17 0.02 250);
   --destructive: oklch(0.55 0.22 25);   /* #EF4444 */
   --border: oklch(0.88 0.01 250);       /* #E2E8F0 */
@@ -148,6 +148,28 @@
 
 /* 新拟态样式 - Neumorphism */
 @layer utilities {
+  .hmh-water-bg {
+    background:
+      radial-gradient(circle at 15% 20%, rgba(59, 130, 246, 0.15), transparent 40%),
+      radial-gradient(circle at 80% 10%, rgba(16, 185, 129, 0.18), transparent 35%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(248, 251, 255, 0.92)),
+      repeating-linear-gradient(
+        120deg,
+        rgba(255, 255, 255, 0.12) 0px,
+        rgba(255, 255, 255, 0.12) 2px,
+        transparent 2px,
+        transparent 14px
+      );
+  }
+
+  .hmh-shell-card {
+    @apply rounded-2xl border border-white/60 bg-white/80 shadow-sm backdrop-blur;
+  }
+
+  .hmh-hero-gradient {
+    background: linear-gradient(90deg, #1d4ed8 0%, #0ea5e9 45%, #10b981 100%);
+  }
+
   /* 新拟态凸起卡片 */
   .neumorphic-card {
     background: linear-gradient(145deg, #ffffff, #e6e6e6);

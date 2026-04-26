@@ -251,7 +251,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="min-h-screen bg-[#F0F4F8]">
+    <div className="min-h-screen hmh-water-bg">
       {/* 移动端顶部导航 */}
       <header className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-sm border-b border-slate-200 h-14 flex items-center justify-between px-4">
         <Button
@@ -446,7 +446,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
       {/* 主内容区 - 浅蓝灰渐变背景 */}
       <main className="lg:ml-16 xl:ml-20 pt-14 lg:pt-0 min-h-screen transition-all duration-300">
-        <div className="p-4 lg:p-6 min-h-screen bg-gradient-to-br from-[#F0F4F8] via-[#E8F0FE] to-[#F0F4F8]">
+        <div className="p-4 lg:p-6 min-h-screen">
           {children}
         </div>
       </main>

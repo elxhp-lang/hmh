@@ -68,7 +68,7 @@ export function MaterialLeaderDashboard({ token }: MaterialLeaderDashboardProps)
             </Card>
           ))}
         </div>
-        <Card>
+        <Card className="hmh-shell-card">
           <CardHeader>
             <Skeleton className="h-6 w-32" />
           </CardHeader>
@@ -79,7 +79,7 @@ export function MaterialLeaderDashboard({ token }: MaterialLeaderDashboardProps)
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="hmh-shell-card">
           <CardHeader>
             <Skeleton className="h-6 w-32" />
           </CardHeader>
@@ -96,7 +96,7 @@ export function MaterialLeaderDashboard({ token }: MaterialLeaderDashboardProps)
       {/* 数据卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* 团队生成总量 */}
-        <Card>
+        <Card className="hmh-shell-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">团队生成总量</CardTitle>
             <Video className="h-4 w-4 text-muted-foreground" />
@@ -108,7 +108,7 @@ export function MaterialLeaderDashboard({ token }: MaterialLeaderDashboardProps)
         </Card>
 
         {/* 生成中 */}
-        <Card>
+        <Card className="hmh-shell-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">生成中</CardTitle>
             <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
@@ -120,7 +120,7 @@ export function MaterialLeaderDashboard({ token }: MaterialLeaderDashboardProps)
         </Card>
 
         {/* 团队人数 */}
-        <Card>
+        <Card className="hmh-shell-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">团队人数</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
@@ -132,7 +132,7 @@ export function MaterialLeaderDashboard({ token }: MaterialLeaderDashboardProps)
         </Card>
 
         {/* 成功率 */}
-        <Card>
+        <Card className="hmh-shell-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">成功率</CardTitle>
             <CheckCircle className="h-4 w-4 text-green-500" />
@@ -145,7 +145,7 @@ export function MaterialLeaderDashboard({ token }: MaterialLeaderDashboardProps)
       </div>
 
       {/* 快捷操作 */}
-      <Card>
+      <Card className="hmh-shell-card">
         <CardHeader>
           <CardTitle>快捷操作</CardTitle>
           <CardDescription>常用功能入口</CardDescription>
@@ -171,7 +171,7 @@ export function MaterialLeaderDashboard({ token }: MaterialLeaderDashboardProps)
       <RecentVideosCard token={token} type="team" />
 
       {/* 团队成员详情 */}
-      <Card>
+      <Card className="hmh-shell-card">
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             <span>团队成员</span>
