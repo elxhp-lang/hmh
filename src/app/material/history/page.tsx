@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth, usePermission } from '@/contexts/AuthContext';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
@@ -12,6 +12,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { VideoLibraryItem, VideoLibraryResponse } from '@/types/video-library';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
   Select,
   SelectContent,
@@ -39,61 +41,19 @@ import {
   Sparkles,
 } from 'lucide-react';
 
-interface VideoItem {
-  id: string;
-  user_id: string;
-  task_id?: string;
-  video_id?: string;
-  seedance_task_id?: string;
-  video_name?: string;
-  prompt: string;
-  script?: string;
-  copywriting?: string;
-  tags?: string[];
-  category?: string;
-  reference_images?: string[];
-  generate_audio?: boolean;
-  watermark?: boolean;
-  web_search?: boolean;
-  source_video_id?: string;
-  source_task_id?: string;
-  is_remix?: boolean;
-  task_type: string;
-  status: string;
-  tos_key: string | null;
-  video_url: string | null;
-  public_video_url?: string;
-  ratio: string;
-  duration: number;
-  cost: number | null;
-  error_message: string | null;
-  error_reason?: string;
-  created_at: string;
-  model?: string;
-  source?: 'videos' | 'learning_library';
-  users: {
-    id: string;
-    username: string;
-    email: string;
-    role: string;
-  } | null;
-}
+type VideoItem = VideoLibraryItem;
+type HistoryResponse = VideoLibraryResponse;
 
-interface HistoryResponse {
-  success: boolean;
-  videos: VideoItem[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-  };
-  filter?: {
-    type: string;
-    status: string;
-    version?: string;
-    userIds: string[];
-  };
+interface FilterPreset {
+  id: string;
+  name: string;
+  activeTab: 'personal' | 'team';
+  statusFilter: string;
+  categoryFilter: string;
+  versionFilter: string;
+  keyword: string;
+  tagKeyword: string;
+  sourceVideoFilter: string;
 }
 
 // 视频分类配置
@@ -120,18 +80,55 @@ export default function MaterialHistoryPage() {
   const [keyword, setKeyword] = useState<string>('');
   const [tagKeyword, setTagKeyword] = useState<string>('');
   const [sourceVideoFilter, setSourceVideoFilter] = useState<string>('');
+  const debouncedKeyword = useDebouncedValue(keyword, 300);
+  const debouncedTagKeyword = useDebouncedValue(tagKeyword, 300);
+  const debouncedSourceVideoFilter = useDebouncedValue(sourceVideoFilter, 300);
   const [page, setPage] = useState(1);
   const [syncToast, setSyncToast] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [selectedVideo, setSelectedVideo] = useState<VideoItem | null>(null);
   const [remixingIds, setRemixingIds] = useState<Set<string>>(new Set());
+  const [openingSourceIds, setOpeningSourceIds] = useState<Set<string>>(new Set());
+  const [filterPresets, setFilterPresets] = useState<FilterPreset[]>([]);
+  const [presetName, setPresetName] = useState<string>('');
+  const historyRequestSeq = useRef(0);
+  const historyAbortController = useRef<AbortController | null>(null);
+  const hasInitializedFromUrl = useRef(false);
+  const urlSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const videoById = new Map((data?.videos || []).map((v) => [v.id, v] as const));
+  const remixGroups = useMemo(() => {
+    const groups = new Map<string, { sourceId: string; sourceTitle: string; total: number; processing: number; failed: number }>();
+    for (const video of data?.videos || []) {
+      if (!video.is_remix || !video.source_video_id) continue;
+      const existing = groups.get(video.source_video_id) || {
+        sourceId: video.source_video_id,
+        sourceTitle: videoById.get(video.source_video_id)?.video_name || videoById.get(video.source_video_id)?.prompt || video.source_video_id.slice(0, 8),
+        total: 0,
+        processing: 0,
+        failed: 0,
+      };
+      existing.total += 1;
+      if (video.status === 'processing') existing.processing += 1;
+      if (video.status === 'failed') existing.failed += 1;
+      groups.set(video.source_video_id, existing);
+    }
+    return Array.from(groups.values()).sort((a, b) => b.total - a.total);
+  }, [data?.videos]);
+  const selectedSourceVersions = useMemo(() => {
+    if (!sourceVideoFilter.trim()) return [];
+    const sourceId = sourceVideoFilter.trim();
+    return (data?.videos || [])
+      .filter((video) => video.source_video_id === sourceId || video.id === sourceId)
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  }, [data?.videos, sourceVideoFilter]);
 
   // 是否可以查看团队
   const canViewTeam = permission.isMaterialLeader || permission.isAdmin;
   
   // 团队视图的标签文字
   const teamTabLabel = permission.isAdmin ? '全部素材' : '团队素材';
+  const FILTER_PRESETS_KEY = 'video_library_filter_presets_v1';
 
   // 初始化：从 URL 恢复筛选状态（支持刷新后保留筛选）
   useEffect(() => {
@@ -152,12 +149,15 @@ export default function MaterialHistoryPage() {
     if (tag !== null) setTagKeyword(tag);
     if (sourceVideoId !== null) setSourceVideoFilter(sourceVideoId);
     if (pageParam && !Number.isNaN(Number(pageParam))) setPage(Math.max(1, Number(pageParam)));
+    hasInitializedFromUrl.current = true;
     // 只在初次挂载时同步一次
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 状态变更时同步到 URL，便于联测复现
+  // 状态变更时同步到 URL（差异更新 + 防抖）
   useEffect(() => {
+    if (!hasInitializedFromUrl.current) return;
+
     const params = new URLSearchParams();
     params.set('type', activeTab);
     if (statusFilter !== 'all') params.set('status', statusFilter);
@@ -167,14 +167,53 @@ export default function MaterialHistoryPage() {
     if (tagKeyword.trim()) params.set('tag', tagKeyword.trim());
     if (sourceVideoFilter.trim()) params.set('sourceVideoId', sourceVideoFilter.trim());
     if (page > 1) params.set('page', String(page));
-    router.replace(`/material/history?${params.toString()}`);
-  }, [activeTab, statusFilter, categoryFilter, versionFilter, keyword, tagKeyword, sourceVideoFilter, page, router]);
+
+    const nextQuery = params.toString();
+    const current = searchParams.toString();
+    if (nextQuery === current) return;
+
+    if (urlSyncTimer.current) clearTimeout(urlSyncTimer.current);
+    urlSyncTimer.current = setTimeout(() => {
+      router.replace(`/material/history?${nextQuery}`);
+    }, 120);
+  }, [activeTab, statusFilter, categoryFilter, versionFilter, keyword, tagKeyword, sourceVideoFilter, page, router, searchParams]);
+
+  useEffect(() => {
+    return () => {
+      if (urlSyncTimer.current) clearTimeout(urlSyncTimer.current);
+    };
+  }, []);
+
+  // 加载本地筛选预设
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(FILTER_PRESETS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as FilterPreset[];
+      if (Array.isArray(parsed)) {
+        setFilterPresets(parsed.slice(0, 12));
+      }
+    } catch (error) {
+      console.error('读取筛选预设失败:', error);
+    }
+  }, []);
+
+  const persistPresets = (next: FilterPreset[]) => {
+    setFilterPresets(next);
+    try {
+      localStorage.setItem(FILTER_PRESETS_KEY, JSON.stringify(next));
+    } catch (error) {
+      console.error('保存筛选预设失败:', error);
+    }
+  };
 
   // 加载历史数据
   const loadHistory = useCallback(async () => {
     if (!token) return;
 
     setLoading(true);
+    setHistoryError(null);
+    let requestSeq = 0;
     try {
       const params = new URLSearchParams({
         type: activeTab,
@@ -190,51 +229,70 @@ export default function MaterialHistoryPage() {
         params.set('category', categoryFilter);
       }
 
-      if (keyword && keyword.trim()) {
-        params.set('keyword', keyword.trim());
+      if (debouncedKeyword && debouncedKeyword.trim()) {
+        params.set('keyword', debouncedKeyword.trim());
       }
-      if (tagKeyword && tagKeyword.trim()) {
-        params.set('tag', tagKeyword.trim());
+      if (debouncedTagKeyword && debouncedTagKeyword.trim()) {
+        params.set('tag', debouncedTagKeyword.trim());
       }
 
       if (versionFilter && versionFilter !== 'all') {
         params.set('version', versionFilter);
       }
 
-      if (sourceVideoFilter && sourceVideoFilter.trim()) {
-        params.set('sourceVideoId', sourceVideoFilter.trim());
+      if (debouncedSourceVideoFilter && debouncedSourceVideoFilter.trim()) {
+        params.set('sourceVideoId', debouncedSourceVideoFilter.trim());
       }
+
+      historyAbortController.current?.abort();
+      const controller = new AbortController();
+      historyAbortController.current = controller;
+      requestSeq = ++historyRequestSeq.current;
 
       const response = await fetch(`/api/material/history?${params}`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
+        signal: controller.signal,
       });
 
       const result = await response.json();
-      if (result.success) {
+      if (requestSeq !== historyRequestSeq.current) {
+        return;
+      }
+      if (response.ok && result.success) {
         setData(result);
+      } else {
+        setHistoryError(result?.error || '加载视频库失败，请稍后重试');
       }
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return;
+      }
       console.error('加载历史失败:', error);
+      setHistoryError('加载视频库失败，请检查网络或稍后重试');
     } finally {
-      setLoading(false);
+      // 仅由最新请求关闭 loading，避免旧请求覆盖新请求状态
+      if (requestSeq === historyRequestSeq.current) {
+        setLoading(false);
+      }
     }
-  }, [token, activeTab, statusFilter, categoryFilter, keyword, tagKeyword, versionFilter, sourceVideoFilter, page]);
+  }, [token, activeTab, statusFilter, categoryFilter, debouncedKeyword, debouncedTagKeyword, versionFilter, debouncedSourceVideoFilter, page]);
 
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
 
-  // 搜索防抖
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setPage(1);
-      loadHistory();
-    }, 300);
+    return () => {
+      historyAbortController.current?.abort();
+    };
+  }, []);
 
-    return () => clearTimeout(timer);
-  }, [keyword]);
+  // 搜索项变化时回到第一页（请求由 loadHistory 统一触发）
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedKeyword, debouncedTagKeyword, debouncedSourceVideoFilter]);
 
   // 切换 Tab 时重置页码
   const handleTabChange = (value: string) => {
@@ -284,6 +342,48 @@ export default function MaterialHistoryPage() {
     setTagKeyword('');
     setSourceVideoFilter('');
     setPage(1);
+  };
+
+  const saveCurrentPreset = () => {
+    const name = presetName.trim() || `筛选方案 ${filterPresets.length + 1}`;
+    const next: FilterPreset[] = [
+      {
+        id: `preset_${Date.now()}`,
+        name,
+        activeTab,
+        statusFilter,
+        categoryFilter,
+        versionFilter,
+        keyword,
+        tagKeyword,
+        sourceVideoFilter,
+      },
+      ...filterPresets,
+    ].slice(0, 12);
+    persistPresets(next);
+    setPresetName('');
+    showToast(`已保存筛选预设：${name}`);
+  };
+
+  const applyPreset = (preset: FilterPreset) => {
+    setActiveTab(preset.activeTab);
+    setStatusFilter(preset.statusFilter || 'all');
+    setCategoryFilter(preset.categoryFilter || 'all');
+    setVersionFilter(preset.versionFilter || 'all');
+    setKeyword(preset.keyword || '');
+    setTagKeyword(preset.tagKeyword || '');
+    setSourceVideoFilter(preset.sourceVideoFilter || '');
+    setPage(1);
+  };
+
+  const deletePreset = (presetId: string) => {
+    const next = filterPresets.filter((preset) => preset.id !== presetId);
+    persistPresets(next);
+  };
+
+  const showToast = (message: string, duration = 2500) => {
+    setSyncToast(message);
+    setTimeout(() => setSyncToast(null), duration);
   };
 
   // 下载视频
@@ -411,9 +511,19 @@ export default function MaterialHistoryPage() {
 
   const handleOpenSourceVideo = useCallback(async (video: VideoItem) => {
     if (!token || !video.source_video_id) return;
+    setOpeningSourceIds((prev) => {
+      const next = new Set(prev);
+      next.add(video.id);
+      return next;
+    });
     const source = videoById.get(video.source_video_id);
     if (source) {
       setSelectedVideo(source);
+      setOpeningSourceIds((prev) => {
+        const next = new Set(prev);
+        next.delete(video.id);
+        return next;
+      });
       return;
     }
 
@@ -424,14 +534,23 @@ export default function MaterialHistoryPage() {
       const result = await response.json();
       if (response.ok && result?.success && Array.isArray(result.videos) && result.videos.length > 0) {
         setSelectedVideo(result.videos[0] as VideoItem);
+        setOpeningSourceIds((prev) => {
+          const next = new Set(prev);
+          next.delete(video.id);
+          return next;
+        });
         return;
       }
-      setSyncToast(`未找到来源视频 ${video.source_video_id.slice(0, 8)}`);
+      showToast(`未找到来源视频 ${video.source_video_id.slice(0, 8)}`);
     } catch (error) {
       console.error('加载来源视频失败:', error);
-      setSyncToast('加载来源视频失败，请稍后重试');
+      showToast('加载来源视频失败，请稍后重试');
     } finally {
-      setTimeout(() => setSyncToast(null), 2500);
+      setOpeningSourceIds((prev) => {
+        const next = new Set(prev);
+        next.delete(video.id);
+        return next;
+      });
     }
   }, [token, videoById, activeTab]);
 
@@ -510,6 +629,98 @@ export default function MaterialHistoryPage() {
           </TabsList>
 
           <TabsContent value="videos" className="mt-6 space-y-6">
+            {remixGroups.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">REMIX 版本追踪</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {remixGroups.slice(0, 6).map((group) => (
+                    <div key={group.sourceId} className="flex items-center justify-between gap-3 border rounded px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{group.sourceTitle}</p>
+                        <p className="text-xs text-muted-foreground font-mono">来源ID: {group.sourceId}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Badge variant="outline">总 {group.total}</Badge>
+                        {group.processing > 0 && <Badge variant="secondary">进行中 {group.processing}</Badge>}
+                        {group.failed > 0 && <Badge variant="destructive">失败 {group.failed}</Badge>}
+                        <Button size="sm" variant="outline" onClick={() => filterBySourceVideo(group.sourceId)}>
+                          查看版本
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+            {selectedSourceVersions.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">来源版本树</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {selectedSourceVersions.map((video, idx) => (
+                    <div key={video.id} className="flex items-center justify-between border rounded px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {idx === 0 && !video.is_remix ? '原片' : `REMIX V${idx}`}
+                        </p>
+                        <p className="text-xs text-muted-foreground font-mono">{video.id}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={video.status === 'completed' ? 'default' : video.status === 'failed' ? 'destructive' : 'secondary'}>
+                          {video.status}
+                        </Badge>
+                        <Button size="sm" variant="outline" onClick={() => setSelectedVideo(video)}>
+                          查看详情
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+
+            <Card>
+              <CardContent className="pt-6 space-y-3">
+                <div className="flex flex-wrap gap-2 items-center">
+                  <Input
+                    placeholder="输入预设名称（可选）"
+                    value={presetName}
+                    onChange={(e) => setPresetName(e.target.value)}
+                    className="w-[220px]"
+                  />
+                  <Button variant="outline" size="sm" onClick={saveCurrentPreset}>
+                    保存当前筛选为预设
+                  </Button>
+                </div>
+                {filterPresets.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {filterPresets.map((preset) => (
+                      <div key={preset.id} className="inline-flex items-center gap-1 rounded border px-2 py-1">
+                        <button
+                          type="button"
+                          onClick={() => applyPreset(preset)}
+                          className="text-xs hover:underline"
+                        >
+                          {preset.name}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deletePreset(preset.id)}
+                          className="text-xs text-muted-foreground hover:text-destructive"
+                          aria-label={`删除预设 ${preset.name}`}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <div className="flex flex-wrap gap-4 items-center">
               <div className="flex-1 min-w-[200px]">
                 <div className="relative">
@@ -620,6 +831,7 @@ export default function MaterialHistoryPage() {
                     remixingIds={remixingIds}
                     onOpenSourceVideo={handleOpenSourceVideo}
                     onTagClick={applyTagFilter}
+                    openingSourceIds={openingSourceIds}
                   />
                 </TabsContent>
 
@@ -639,6 +851,7 @@ export default function MaterialHistoryPage() {
                     remixingIds={remixingIds}
                     onOpenSourceVideo={handleOpenSourceVideo}
                     onTagClick={applyTagFilter}
+                    openingSourceIds={openingSourceIds}
                   />
                 </TabsContent>
               </Tabs>
@@ -658,7 +871,21 @@ export default function MaterialHistoryPage() {
                 remixingIds={remixingIds}
                 onOpenSourceVideo={handleOpenSourceVideo}
                 onTagClick={applyTagFilter}
+                openingSourceIds={openingSourceIds}
               />
+            )}
+
+            {historyError && (
+              <Card className="border-destructive">
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm text-destructive">{historyError}</p>
+                    <Button variant="outline" size="sm" onClick={loadHistory}>
+                      重试加载
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
             )}
 
             {data && data.pagination.totalPages > 1 && (
@@ -878,6 +1105,7 @@ function VideoGrid({
   remixingIds,
   onOpenSourceVideo,
   onTagClick,
+  openingSourceIds,
 }: {
   loading: boolean;
   videos: VideoItem[];
@@ -893,6 +1121,7 @@ function VideoGrid({
   remixingIds: Set<string>;
   onOpenSourceVideo: (video: VideoItem) => void;
   onTagClick: (tag: string) => void;
+  openingSourceIds: Set<string>;
 }) {
   if (loading) {
     return (
@@ -1099,8 +1328,13 @@ function VideoGrid({
                     variant="outline"
                     className="flex-1 min-w-[80px]"
                     onClick={() => onOpenSourceVideo(video)}
+                    disabled={openingSourceIds.has(video.id)}
                   >
-                    <Info className="h-3 w-3 mr-1" />
+                    {openingSourceIds.has(video.id) ? (
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    ) : (
+                      <Info className="h-3 w-3 mr-1" />
+                    )}
                     来源视频
                   </Button>
                 )}
