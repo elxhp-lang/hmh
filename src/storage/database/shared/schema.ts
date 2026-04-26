@@ -44,6 +44,8 @@ export const videos = pgTable(
     script: text("script"), // 视频脚本
     copywriting: text("copywriting"), // 视频配文
     tags: jsonb("tags").$type<string[]>(), // 视频标签数组
+    tag_source: varchar("tag_source", { length: 20 }).default('manual'), // auto, manual, mixed
+    auto_tag_status: varchar("auto_tag_status", { length: 20 }).default('pending'), // pending, success, failed
     category: varchar("category", { length: 50 }), // 视频分类（开箱/测评/参数科普/热点解读）
     task_type: varchar("task_type", { length: 20 }).notNull().default('generate'), // generate, edit, extend
     model: varchar("model", { length: 50 }).notNull().default('doubao-seedance-2-0-260128'),
@@ -83,8 +85,26 @@ export const videos = pgTable(
     index("videos_tos_key_idx").on(table.tos_key),
     index("videos_seedance_task_id_idx").on(table.seedance_task_id),
     index("videos_category_idx").on(table.category),
+    index("videos_tag_source_idx").on(table.tag_source),
+    index("videos_auto_tag_status_idx").on(table.auto_tag_status),
     index("videos_source_video_id_idx").on(table.source_video_id),
     index("videos_is_remix_idx").on(table.is_remix),
+  ]
+);
+
+export const tagDefinitions = pgTable(
+  "tag_definitions",
+  {
+    id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+    name: varchar("name", { length: 50 }).notNull().unique(),
+    enabled: boolean("enabled").notNull().default(true),
+    created_by: varchar("created_by", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("tag_definitions_name_idx").on(table.name),
+    index("tag_definitions_enabled_idx").on(table.enabled),
   ]
 );
 
@@ -402,6 +422,7 @@ export type UploadedFile = typeof uploadedFiles.$inferSelect;
 export type DailyStat = typeof dailyStats.$inferSelect;
 export type XiaohaiWorkflow = typeof xiaohaiWorkflows.$inferSelect;
 export type RealAsset = typeof realAssets.$inferSelect;
+export type TagDefinition = typeof tagDefinitions.$inferSelect;
 
 // ========== 双笔记本系统 ==========
 // ========== 对话历史表（笔记本1号：24小时清理）==========

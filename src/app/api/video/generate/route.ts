@@ -7,6 +7,34 @@ import { fail, normalizeText, requireAuth } from '@/lib/server/api-kit';
 // 初始化 Seedance 客户端
 const seedanceClient = new SeedanceClient();
 
+function deriveAutoTags(input: {
+  prompt?: string | null;
+  script?: string | null;
+  copywriting?: string | null;
+  category?: string | null;
+  isRemix?: boolean;
+}, candidatePool: string[]): string[] {
+  const merged = `${input.prompt || ''}\n${input.script || ''}\n${input.copywriting || ''}\n${input.category || ''}`.toLowerCase();
+  const picked: string[] = [];
+
+  for (const tag of candidatePool) {
+    if (picked.length >= 5) break;
+    if (merged.includes(tag.toLowerCase())) picked.push(tag);
+  }
+
+  if (input.category && !picked.includes(input.category)) picked.push(input.category);
+  if (input.isRemix && !picked.includes('REMIX')) picked.push('REMIX');
+
+  if (picked.length === 0) {
+    if (merged.includes('测评')) picked.push('测评');
+    if (merged.includes('开箱')) picked.push('开箱');
+    if (merged.includes('教程')) picked.push('教程');
+    if (picked.length === 0) picked.push('种草');
+  }
+
+  return Array.from(new Set(picked)).slice(0, 5);
+}
+
 /**
  * 视频生成 API (Seedance 2.0)
  * POST /api/video/generate
@@ -327,6 +355,41 @@ export async function GET(request: NextRequest) {
                 total_tokens: totalTokens,
               })
               .eq('id', video.id);
+
+            // 自动标签识别：只从标签池里挑选，未命中再走最小兜底
+            try {
+              const { data: defs } = await supabase
+                .from('tag_definitions')
+                .select('name')
+                .eq('enabled', true)
+                .order('name', { ascending: true });
+              const pool = (defs || []).map((item: any) => item.name as string).filter(Boolean);
+              const autoTags = deriveAutoTags({
+                prompt: video.prompt,
+                script: video.script,
+                copywriting: video.copywriting,
+                category: video.category,
+                isRemix: Boolean(video.is_remix),
+              }, pool);
+              await supabase
+                .from('videos')
+                .update({
+                  tags: autoTags,
+                  tag_source: 'auto',
+                  auto_tag_status: 'success',
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', video.id);
+            } catch (tagError) {
+              console.error('自动标签识别失败:', tagError);
+              await supabase
+                .from('videos')
+                .update({
+                  auto_tag_status: 'failed',
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', video.id);
+            }
 
             // 记录账单
             await supabase.from('billing').insert({

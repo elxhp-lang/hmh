@@ -9,6 +9,8 @@ export interface VideoLibraryItem {
   script?: string;
   copywriting?: string;
   tags?: string[];
+  tag_source?: string | null;
+  auto_tag_status?: string | null;
   category?: string;
   reference_images?: string[];
   generate_audio?: boolean;

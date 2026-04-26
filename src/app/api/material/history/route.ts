@@ -84,6 +84,8 @@ export async function GET(request: NextRequest) {
         script,
         copywriting,
         tags,
+        tag_source,
+        auto_tag_status,
         category,
         reference_images,
         generate_audio,
@@ -190,6 +192,8 @@ export async function GET(request: NextRequest) {
       script?: string | null;
       copywriting?: string | null;
       tags?: string[] | null;
+      tag_source?: string | null;
+      auto_tag_status?: string | null;
       category?: string | null;
       reference_images?: string[] | null;
       generate_audio?: boolean | null;
@@ -230,6 +234,8 @@ export async function GET(request: NextRequest) {
             script: (v.script as string) || null,
             copywriting: (v.copywriting as string) || null,
             tags: (v.tags as string[]) || [],
+            tag_source: (v.tag_source as string) || null,
+            auto_tag_status: (v.auto_tag_status as string) || null,
             category: (v.category as string) || null,
             reference_images: (v.reference_images as string[]) || [],
             generate_audio: v.generate_audio ?? true,

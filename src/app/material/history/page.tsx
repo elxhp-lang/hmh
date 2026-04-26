@@ -56,6 +56,12 @@ interface FilterPreset {
   sourceVideoFilter: string;
 }
 
+interface TagDefinition {
+  id: string;
+  name: string;
+  enabled: boolean;
+}
+
 // 视频分类配置
 const CATEGORIES = [
   { value: 'all', label: '全部' },
@@ -91,6 +97,12 @@ export default function MaterialHistoryPage() {
   const [openingSourceIds, setOpeningSourceIds] = useState<Set<string>>(new Set());
   const [filterPresets, setFilterPresets] = useState<FilterPreset[]>([]);
   const [presetName, setPresetName] = useState<string>('');
+  const [tagDefinitions, setTagDefinitions] = useState<TagDefinition[]>([]);
+  const [tagPoolLoading, setTagPoolLoading] = useState(false);
+  const [newTagName, setNewTagName] = useState('');
+  const [editingTags, setEditingTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+  const [savingTags, setSavingTags] = useState(false);
   const historyRequestSeq = useRef(0);
   const historyAbortController = useRef<AbortController | null>(null);
   const hasInitializedFromUrl = useRef(false);
@@ -283,6 +295,28 @@ export default function MaterialHistoryPage() {
     loadHistory();
   }, [loadHistory]);
 
+  const loadTagDefinitions = useCallback(async () => {
+    if (!token) return;
+    setTagPoolLoading(true);
+    try {
+      const response = await fetch('/api/tag-definitions', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await response.json();
+      if (response.ok && result.success) {
+        setTagDefinitions(result.tags || []);
+      }
+    } catch (error) {
+      console.error('加载标签池失败:', error);
+    } finally {
+      setTagPoolLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    loadTagDefinitions();
+  }, [loadTagDefinitions]);
+
   useEffect(() => {
     return () => {
       historyAbortController.current?.abort();
@@ -384,6 +418,109 @@ export default function MaterialHistoryPage() {
   const showToast = (message: string, duration = 2500) => {
     setSyncToast(message);
     setTimeout(() => setSyncToast(null), duration);
+  };
+
+  useEffect(() => {
+    setEditingTags(selectedVideo?.tags || []);
+    setTagInput('');
+  }, [selectedVideo]);
+
+  const handleAddTagToPool = async () => {
+    if (!token || !newTagName.trim()) return;
+    try {
+      const response = await fetch('/api/tag-definitions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name: newTagName.trim() }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        showToast(result.error || '添加标签失败');
+        return;
+      }
+      setNewTagName('');
+      await loadTagDefinitions();
+      showToast('标签已加入标签池');
+    } catch (error) {
+      console.error('添加标签失败:', error);
+      showToast('添加标签失败');
+    }
+  };
+
+  const handleDeleteTagFromPool = async (id: string) => {
+    if (!token) return;
+    try {
+      const response = await fetch(`/api/tag-definitions?id=${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        showToast(result.error || '移除标签失败');
+        return;
+      }
+      await loadTagDefinitions();
+      showToast('标签已从标签池移除');
+    } catch (error) {
+      console.error('移除标签失败:', error);
+      showToast('移除标签失败');
+    }
+  };
+
+  const appendTag = (tag: string) => {
+    setEditingTags((prev) => (prev.includes(tag) ? prev : [...prev, tag]));
+  };
+
+  const removeTag = (tag: string) => {
+    setEditingTags((prev) => prev.filter((item) => item !== tag));
+  };
+
+  const addCustomTag = () => {
+    const next = tagInput.trim();
+    if (!next) return;
+    appendTag(next);
+    setTagInput('');
+  };
+
+  const saveVideoTags = async () => {
+    if (!token || !selectedVideo) return;
+    setSavingTags(true);
+    try {
+      const response = await fetch('/api/video/tags', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ videoId: selectedVideo.id, tags: editingTags }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        showToast(result.error || '保存标签失败');
+        return;
+      }
+      setSelectedVideo((prev) => (prev ? { ...prev, tags: editingTags, tag_source: 'manual', auto_tag_status: 'success' } : prev));
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          videos: prev.videos.map((video) =>
+            video.id === selectedVideo.id
+              ? { ...video, tags: editingTags, tag_source: 'manual', auto_tag_status: 'success' }
+              : video
+          ),
+        };
+      });
+      showToast('标签已保存');
+    } catch (error) {
+      console.error('保存标签失败:', error);
+      showToast('保存标签失败');
+    } finally {
+      setSavingTags(false);
+    }
   };
 
   // 下载视频
@@ -721,6 +858,47 @@ export default function MaterialHistoryPage() {
               </CardContent>
             </Card>
 
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">标签池管理</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="新增标签（例如：转场/开箱）"
+                    value={newTagName}
+                    onChange={(e) => setNewTagName(e.target.value)}
+                    className="max-w-[260px]"
+                  />
+                  <Button size="sm" variant="outline" onClick={handleAddTagToPool}>
+                    添加标签
+                  </Button>
+                </div>
+                {tagPoolLoading ? (
+                  <p className="text-sm text-muted-foreground">标签池加载中...</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {tagDefinitions.map((tag) => (
+                      <div key={tag.id} className="inline-flex items-center gap-1 rounded border px-2 py-1">
+                        <span className="text-xs">{tag.name}</span>
+                        <button
+                          type="button"
+                          className="text-xs text-muted-foreground hover:text-destructive"
+                          onClick={() => handleDeleteTagFromPool(tag.id)}
+                          aria-label={`删除标签 ${tag.name}`}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    {tagDefinitions.length === 0 && (
+                      <p className="text-xs text-muted-foreground">暂无可用标签，可先新增</p>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <div className="flex flex-wrap gap-4 items-center">
               <div className="flex-1 min-w-[200px]">
                 <div className="relative">
@@ -1006,8 +1184,46 @@ export default function MaterialHistoryPage() {
                           </button>
                         ))}
                       </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        标签来源：{selectedVideo.tag_source || 'manual'} · 自动识别状态：{selectedVideo.auto_tag_status || 'pending'}
+                      </p>
                     </div>
                   )}
+
+                  <div>
+                    <h4 className="text-sm font-medium mb-2">标签编辑（可手工覆盖）</h4>
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap gap-2">
+                        {editingTags.map((tag) => (
+                          <button key={tag} type="button" onClick={() => removeTag(tag)}>
+                            <Badge variant="secondary">{tag} ×</Badge>
+                          </button>
+                        ))}
+                        {editingTags.length === 0 && <span className="text-xs text-muted-foreground">暂无标签</span>}
+                      </div>
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="输入自定义标签后添加"
+                          value={tagInput}
+                          onChange={(e) => setTagInput(e.target.value)}
+                          className="max-w-[240px]"
+                        />
+                        <Button size="sm" variant="outline" onClick={addCustomTag}>
+                          添加自定义标签
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {tagDefinitions.map((tag) => (
+                          <button key={tag.id} type="button" onClick={() => appendTag(tag.name)}>
+                            <Badge variant="outline">{tag.name}</Badge>
+                          </button>
+                        ))}
+                      </div>
+                      <Button size="sm" onClick={saveVideoTags} disabled={savingTags}>
+                        {savingTags ? '保存中...' : '保存标签'}
+                      </Button>
+                    </div>
+                  </div>
 
                   {/* 其他信息 */}
                   <div className="grid grid-cols-2 gap-4 text-sm">
