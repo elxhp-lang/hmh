@@ -5,6 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Video, Loader2, Users, CheckCircle, Plus, History, ChevronRight } from 'lucide-react';
+import { MaterialCenterDialog } from '@/components/dashboard/MaterialCenterDialog';
+import { RecentVideosCard } from '@/components/dashboard/RecentVideosCard';
 
 interface MemberStat {
   user_id: string;
@@ -157,14 +159,16 @@ export function MaterialLeaderDashboard({ token }: MaterialLeaderDashboardProps)
               </a>
             </Button>
             <Button variant="outline" asChild>
-              <a href="/video">
+              <a href="/material/history?type=team">
                 <History className="h-4 w-4 mr-2" />
                 查看历史
               </a>
             </Button>
+            <MaterialCenterDialog tabType="team" />
           </div>
         </CardContent>
       </Card>
+      <RecentVideosCard token={token} type="team" />
 
       {/* 团队成员详情 */}
       <Card>

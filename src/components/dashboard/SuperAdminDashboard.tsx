@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Video, Loader2, Users, FileText, TrendingUp, UserCog, ExternalLink, ChevronDown, Lock } from 'lucide-react';
 import { FinanceOverview } from '@/components/finance/FinanceOverview';
+import { MaterialCenterDialog } from '@/components/dashboard/MaterialCenterDialog';
+import { RecentVideosCard } from '@/components/dashboard/RecentVideosCard';
 
 interface OverviewStats {
   total_videos: number;
@@ -236,8 +238,11 @@ export function SuperAdminDashboard({ token }: SuperAdminDashboardProps) {
               <p className="text-xs text-muted-foreground">角色分配/状态管理</p>
             </div>
           </a>
+          <MaterialCenterDialog tabType="team" buttonText="素材中心窗口" />
         </CardContent>
       </Card>
+
+      <RecentVideosCard token={token} type="team" />
 
       {/* 平台公告和外部链接 */}
       <div className="grid gap-4 md:grid-cols-2">

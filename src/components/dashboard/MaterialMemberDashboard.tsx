@@ -5,6 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Video, Loader2, CheckCircle, XCircle, Plus, History, Sparkles, TrendingUp } from 'lucide-react';
+import { MaterialCenterDialog } from '@/components/dashboard/MaterialCenterDialog';
+import { RecentVideosCard } from '@/components/dashboard/RecentVideosCard';
 
 interface PersonalStats {
   myVideos: number;
@@ -140,7 +142,7 @@ export function MaterialMemberDashboard({ token, userId }: MaterialMemberDashboa
               </a>
             </Button>
             <Button variant="outline" asChild className="gap-2">
-              <a href="/video">
+              <a href="/material/history?type=personal">
                 <History className="h-4 w-4" />
                 查看历史
               </a>
@@ -151,9 +153,11 @@ export function MaterialMemberDashboard({ token, userId }: MaterialMemberDashboa
                 创意小海
               </a>
             </Button>
+            <MaterialCenterDialog tabType="personal" />
           </div>
         </CardContent>
       </Card>
+      <RecentVideosCard token={token} type="personal" />
     </div>
   );
 }
