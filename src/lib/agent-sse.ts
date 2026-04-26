@@ -13,13 +13,35 @@ export type SSEEventType =
   | 'error'
   | 'done';
 
+export interface ToolExecutionResult {
+  success?: boolean;
+  data?: unknown;
+  error?: string;
+  [key: string]: unknown;
+}
+
 export interface SSEEvent {
   type: SSEEventType;
   content?: string;
   data?: unknown;
   tool?: string;
-  result?: unknown;
+  result?: ToolExecutionResult;
   params?: unknown;
+}
+
+export function normalizeToolExecutionResult(result: unknown): ToolExecutionResult {
+  if (result && typeof result === 'object') {
+    return result as ToolExecutionResult;
+  }
+  return {
+    success: false,
+    error: typeof result === 'string' ? result : '工具返回了非结构化结果',
+    data: result,
+  };
+}
+
+export function getToolResultData(result: ToolExecutionResult | undefined): unknown {
+  return result?.data;
 }
 
 export function parseSSEPayload(raw: string): SSEEvent | null {
@@ -40,7 +62,7 @@ export function parseSSEPayload(raw: string): SSEEvent | null {
     content: typeof parsed.content === 'string' ? parsed.content : undefined,
     data: parsed.data,
     tool: typeof parsed.tool === 'string' ? parsed.tool : undefined,
-    result: parsed.result,
+    result: type === 'tool_result' ? normalizeToolExecutionResult(parsed.result) : undefined,
     params: parsed.params,
   };
 }

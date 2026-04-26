@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { streamAgentRequest, apiRequest } from '@/lib/api';
-import { SSEEvent } from '@/lib/agent-sse';
+import { SSEEvent, getToolResultData } from '@/lib/agent-sse';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -678,11 +678,14 @@ export default function CreativeAgentPageNew() {
               break;
               
             case 'tool_result':
-              if (event.tool === 'analyze_video' && event.result?.data) {
-                currentAnalysis = event.result.data;
-              }
-              if (event.tool === 'generate_script' && event.result?.data) {
-                currentScripts = normalizeScriptOptions(event.result.data);
+              {
+                const resultData = getToolResultData(event.result);
+                if (event.tool === 'analyze_video' && resultData) {
+                  currentAnalysis = resultData;
+                }
+                if (event.tool === 'generate_script' && resultData) {
+                  currentScripts = normalizeScriptOptions(resultData);
+                }
               }
               // 🔧 简化：删除 submit_video_task 的收集，改为在文字提示中告知用户
               // if (event.tool === 'submit_video_task' && event.result?.data) {

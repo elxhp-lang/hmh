@@ -19,6 +19,7 @@ import { AgentToolsService } from '@/lib/agent-tools-service';
 import { getXiaohaiSystemPromptV3 } from '@/lib/xiaohai-system-prompt-v3';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { createSSEWriter, getBearerToken, ok } from '@/lib/server/api-kit';
+import { normalizeToolExecutionResult } from '@/lib/agent-sse';
 
 const client = new LLMClient(new Config());
 const toolsService = new AgentToolsService();
@@ -427,7 +428,7 @@ export async function POST(request: NextRequest) {
               // 检查工具是否存在
               if (!(toolName in tools)) {
                 const errorResult = { error: `未知工具: ${toolName}` };
-                sendEvent({ type: 'tool_result', tool: toolName, result: errorResult });
+                sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(errorResult) });
                 
                 messages.push({
                   role: 'user',
@@ -450,7 +451,7 @@ export async function POST(request: NextRequest) {
                 }
 
                 // 发送结果
-                sendEvent({ type: 'tool_result', tool: toolName, result });
+                sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(result) });
 
                 // 添加反馈
                 messages.push({
@@ -459,7 +460,7 @@ export async function POST(request: NextRequest) {
                 });
               } catch (toolError) {
                 const errorResult = { error: toolError instanceof Error ? toolError.message : '工具执行失败' };
-                sendEvent({ type: 'tool_result', tool: toolName, result: errorResult });
+                sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(errorResult) });
                 
                 messages.push({
                   role: 'user',
