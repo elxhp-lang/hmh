@@ -44,6 +44,8 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
     const category = searchParams.get('category');
     const keyword = searchParams.get('keyword');
+    const tag = searchParams.get('tag');
+    const version = searchParams.get('version') || 'all';
     const targetUserId = searchParams.get('userId');
 
     const client = getSupabaseClient();
@@ -126,6 +128,18 @@ export async function GET(request: NextRequest) {
     // 应用关键词搜索
     if (keyword) {
       videoQuery = videoQuery.or(`prompt.ilike.%${keyword}%,script.ilike.%${keyword}%,copywriting.ilike.%${keyword}%`);
+    }
+
+    // 标签精确筛选（jsonb 数组包含）
+    if (tag && tag.trim()) {
+      videoQuery = videoQuery.contains('tags', [tag.trim()]);
+    }
+
+    // 版本筛选
+    if (version === 'remix') {
+      videoQuery = videoQuery.eq('is_remix', true);
+    } else if (version === 'original') {
+      videoQuery = videoQuery.or('is_remix.is.null,is_remix.eq.false');
     }
 
     // 不分页，获取所有数据（后续合并后再分页）
@@ -327,6 +341,7 @@ export async function GET(request: NextRequest) {
       filter: {
         type,
         status,
+        version,
         userIds: queryUserIds,
       },
     });

@@ -90,6 +90,7 @@ interface HistoryResponse {
   filter?: {
     type: string;
     status: string;
+    version?: string;
     userIds: string[];
   };
 }
@@ -112,7 +113,9 @@ export default function MaterialHistoryPage() {
   const [activeTab, setActiveTab] = useState<'personal' | 'team'>('personal');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [versionFilter, setVersionFilter] = useState<string>('all');
   const [keyword, setKeyword] = useState<string>('');
+  const [tagKeyword, setTagKeyword] = useState<string>('');
   const [page, setPage] = useState(1);
   const [syncToast, setSyncToast] = useState<string | null>(null);
   const [selectedVideo, setSelectedVideo] = useState<VideoItem | null>(null);
@@ -147,6 +150,13 @@ export default function MaterialHistoryPage() {
       if (keyword && keyword.trim()) {
         params.set('keyword', keyword.trim());
       }
+      if (tagKeyword && tagKeyword.trim()) {
+        params.set('tag', tagKeyword.trim());
+      }
+
+      if (versionFilter && versionFilter !== 'all') {
+        params.set('version', versionFilter);
+      }
 
       const response = await fetch(`/api/material/history?${params}`, {
         headers: {
@@ -163,7 +173,7 @@ export default function MaterialHistoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, activeTab, statusFilter, categoryFilter, keyword, page]);
+  }, [token, activeTab, statusFilter, categoryFilter, keyword, tagKeyword, versionFilter, page]);
 
   useEffect(() => {
     loadHistory();
@@ -194,6 +204,11 @@ export default function MaterialHistoryPage() {
   // 分类筛选变化时重置页码
   const handleCategoryChange = (value: string) => {
     setCategoryFilter(value);
+    setPage(1);
+  };
+
+  const handleVersionChange = (value: string) => {
+    setVersionFilter(value);
     setPage(1);
   };
 
@@ -408,6 +423,14 @@ export default function MaterialHistoryPage() {
                 </div>
               </div>
 
+              <div className="min-w-[180px]">
+                <Input
+                  placeholder="按标签筛选，如：开箱"
+                  value={tagKeyword}
+                  onChange={(e) => setTagKeyword(e.target.value)}
+                />
+              </div>
+
               <Select value={categoryFilter} onValueChange={handleCategoryChange}>
                 <SelectTrigger className="w-[140px]">
                   <SelectValue placeholder="分类筛选" />
@@ -431,6 +454,17 @@ export default function MaterialHistoryPage() {
                   <SelectItem value="processing">生成中</SelectItem>
                   <SelectItem value="failed">失败</SelectItem>
                   <SelectItem value="pending">等待中</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={versionFilter} onValueChange={handleVersionChange}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="版本筛选" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部版本</SelectItem>
+                  <SelectItem value="original">原片</SelectItem>
+                  <SelectItem value="remix">REMIX</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -523,7 +557,10 @@ export default function MaterialHistoryPage() {
                   <div className="flex items-center justify-between text-sm text-muted-foreground">
                     <span>共 {data.pagination.total} 条记录</span>
                     {activeTab === 'team' && data.filter && (
-                      <span>筛选: {data.filter.userIds?.length || 0} 位成员</span>
+                      <span>
+                        筛选: {data.filter.userIds?.length || 0} 位成员
+                        {data.filter.version && data.filter.version !== 'all' ? ` · ${data.filter.version === 'remix' ? '仅REMIX' : '仅原片'}` : ''}
+                      </span>
                     )}
                   </div>
                 </CardContent>
@@ -832,6 +869,12 @@ function VideoGrid({
                       来源: {video.source_video_id.slice(0, 8)}
                     </span>
                   )}
+                </div>
+              )}
+
+              {video.source_task_id && (
+                <div className="text-xs font-mono text-muted-foreground truncate">
+                  来源任务: {video.source_task_id}
                 </div>
               )}
 
