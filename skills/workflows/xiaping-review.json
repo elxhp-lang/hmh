@@ -1,0 +1,8 @@
+{
+  "name": "xiaping-review",
+  "description": "虾评批量评测工作流",
+  "steps": [
+    {"skill": "xiaping-client", "action": "getTasks", "params": {}},
+    {"skill": "xiaping-client", "action": "getMyInfo", "params": {}}
+  ]
+}

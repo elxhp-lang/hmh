@@ -1,0 +1,16 @@
+{
+  "name": "workflow-automation",
+  "version": "1.7.0",
+  "description": "【小遇AI实验室荣誉出品】将多个OpenClaw技能智能串联成自动化工作流引擎。支持自定义节点、触发条件（定时/Cron/事件驱动）、条件分支、循环执行和并行处理。适用于复杂任务自动化、数据管道编排、多步骤业务流程，大幅提升AI Agent工作效率。只需描述需求，即可自动生成完整工作流。",
+  "main": "index.js",
+  "scripts": {
+    "test": "node -e \"const w = require('./index.js'); console.log(w.main({ list: true }))\""
+  },
+  "keywords": [
+    "workflow",
+    "automation",
+    "chaining"
+  ],
+  "author": "",
+  "license": "MIT"
+}

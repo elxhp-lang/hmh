@@ -1,0 +1,26 @@
+{
+  "name": "全栈开发",
+  "version": "1.0.0",
+  "description": "【MiniMax官方】全栈后端架构和前后端集成开发。涵盖REST API设计、认证流程(JWT/session/OAuth)、实时功能(SSE/WebSocket)、数据库集成(SQL/NoSQL)、生产环境加固。",
+  "triggers": [
+    "fullstack",
+    "backend",
+    "api",
+    "database",
+    "全栈开发",
+    "后端"
+  ],
+  "category": [
+    "开发辅助"
+  ],
+  "tags": [
+    "MiniMax",
+    "官方",
+    "全栈",
+    "后端",
+    "API",
+    "数据库",
+    "OAuth"
+  ],
+  "author": "MiniMaxAI"
+}

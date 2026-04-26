@@ -1,0 +1,25 @@
+{
+  "name": "视觉分析",
+  "version": "1.0.0",
+  "description": "【MiniMax官方】使用视觉AI模型分析、描述和提取图像信息。支持图像描述、OCR、UI原型审查、图表数据提取和目标检测。",
+  "triggers": [
+    "vision",
+    "image analysis",
+    "ocr",
+    "视觉分析",
+    "图像识别",
+    "UI审查"
+  ],
+  "category": [
+    "图像与设计"
+  ],
+  "tags": [
+    "MiniMax",
+    "官方",
+    "视觉分析",
+    "OCR",
+    "图像识别",
+    "UI审查"
+  ],
+  "author": "MiniMaxAI"
+}

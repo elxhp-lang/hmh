@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>测试 SSE</title>
+</head>
+<body>
+  <h1>测试流式响应</h1>
+  <button id="testBtn">发送测试请求</button>
+  <div id="output" style="white-space: pre-wrap; border: 1px solid #ccc; padding: 10px; margin-top: 20px; min-height: 100px;"></div>
+  
+  <script>
+    const btn = document.getElementById('testBtn');
+    const output = document.getElementById('output');
+    
+    btn.addEventListener('click', async () => {
+      output.textContent = '正在发送请求...\n';
+      
+      try {
+        const response = await fetch('/api/xiaohai/agent/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ message: '你好' })
+        });
+        
+        output.textContent += `状态: ${response.status}\n`;
+        output.textContent += `类型: ${response.headers.get('content-type')}\n\n`;
+        
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const dataStr = line.slice(6).trim();
+              if (!dataStr || dataStr === '[DONE]') continue;
+              
+              try {
+                const data = JSON.parse(dataStr);
+                output.textContent += `事件: ${JSON.stringify(data)}\n`;
+              } catch (e) {
+                output.textContent += `解析错误: ${dataStr}\n`;
+              }
+            }
+          }
+        }
+        
+        output.textContent += '\n完成!';
+      } catch (e) {
+        output.textContent += `错误: ${e.message}\n`;
+      }
+    });
+  </script>
+</body>
+</html>

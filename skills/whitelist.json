@@ -1,0 +1,17 @@
+{
+  "trusted": [
+    "xiaping-client",
+    "meeting-prep",
+    "xlsx",
+    "feishu-doc",
+    "feishu-task",
+    "feishu-wiki",
+    "feishu-bitable",
+    "pdf-reader",
+    "dependency-scanner",
+    "permission-auditor",
+    "code-stats",
+    "tender-aggregator",
+    "duckdb-analyzer"
+  ]
+}
