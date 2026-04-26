@@ -25,6 +25,7 @@ const seedanceClient = new SeedanceClient();
  *   
  *   // 多模态参考
  *   referenceImages?: string[];  // 参考图片 URL 列表 (最多9张)
+ *   realAssetId?: string;         // 真人演员素材 ID（将转为 asset:// 引用）
  *   referenceVideos?: string[];  // 参考视频 URL 列表 (最多3个)
  *   referenceAudios?: string[];  // 参考音频 URL 列表 (最多3个)
  *   
@@ -68,6 +69,7 @@ export async function POST(request: NextRequest) {
       firstFrame,
       lastFrame,
       referenceImages = [],
+      realAssetId,
       referenceVideos = [],
       referenceAudios = [],
       ratio = '16:9',
@@ -90,6 +92,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '参考图片最多9张' }, { status: 400 });
     }
 
+    const normalizedReferenceImages = [...referenceImages];
+    if (realAssetId) {
+      normalizedReferenceImages.push(`asset://${realAssetId}`);
+    }
+
     if (referenceVideos.length > 3) {
       return NextResponse.json({ error: '参考视频最多3个' }, { status: 400 });
     }
@@ -107,7 +114,7 @@ export async function POST(request: NextRequest) {
         prompt,
         task_type: taskType,
         model,
-        reference_images: referenceImages.length > 0 ? referenceImages : null,
+        reference_images: normalizedReferenceImages.length > 0 ? normalizedReferenceImages : null,
         reference_videos: referenceVideos.length > 0 ? referenceVideos : null,
         reference_audios: referenceAudios.length > 0 ? referenceAudios : null,
         first_frame: firstFrame || null,
@@ -148,7 +155,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. 参考图片
-    for (const url of referenceImages) {
+    for (const url of normalizedReferenceImages) {
       if (url) {
         content.push({
           type: 'image_url',

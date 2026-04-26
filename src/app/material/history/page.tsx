@@ -3,13 +3,13 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth, usePermission } from '@/contexts/AuthContext';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Select,
@@ -34,8 +34,10 @@ import {
   Tag,
   Info,
   BookOpen,
-  ExternalLink,
   Dot,
+  Package,
+  Users,
+  Copy,
 } from 'lucide-react';
 
 interface VideoItem {
@@ -85,6 +87,34 @@ interface HistoryResponse {
   };
 }
 
+interface ProductImage {
+  view_name: string;
+  key: string;
+  url: string;
+  uploaded_at: string;
+}
+
+interface ProductItem {
+  id: string;
+  product_name: string;
+  product_description?: string;
+  category?: string;
+  images: ProductImage[];
+  usage_count: number;
+  created_at: string;
+}
+
+interface RealAsset {
+  id: string;
+  asset_id: string;
+  asset_url?: string;
+  name: string;
+  description?: string;
+  category?: string;
+  status: 'active' | 'inactive';
+  updated_at: string;
+}
+
 // 视频分类配置
 const CATEGORIES = [
   { value: 'all', label: '全部' },
@@ -95,7 +125,7 @@ const CATEGORIES = [
 ];
 
 export default function MaterialHistoryPage() {
-  const { user, token } = useAuth();
+  const { token } = useAuth();
   const permission = usePermission();
 
   const [loading, setLoading] = useState(true);
@@ -107,6 +137,11 @@ export default function MaterialHistoryPage() {
   const [page, setPage] = useState(1);
   const [syncToast, setSyncToast] = useState<string | null>(null);
   const [selectedVideo, setSelectedVideo] = useState<VideoItem | null>(null);
+  const [materialTab, setMaterialTab] = useState<'videos' | 'products' | 'actors'>('videos');
+  const [products, setProducts] = useState<ProductItem[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [realAssets, setRealAssets] = useState<RealAsset[]>([]);
+  const [realAssetsLoading, setRealAssetsLoading] = useState(false);
 
   // 是否可以查看团队
   const canViewTeam = permission.isMaterialLeader || permission.isAdmin;
@@ -158,6 +193,51 @@ export default function MaterialHistoryPage() {
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
+
+  const loadProducts = useCallback(async () => {
+    if (!token) return;
+    setProductsLoading(true);
+    try {
+      const response = await fetch('/api/product-library', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await response.json();
+      if (response.ok) {
+        setProducts(result.products || []);
+      }
+    } catch (error) {
+      console.error('加载商品素材失败:', error);
+    } finally {
+      setProductsLoading(false);
+    }
+  }, [token]);
+
+  const loadRealAssets = useCallback(async () => {
+    if (!token) return;
+    setRealAssetsLoading(true);
+    try {
+      const response = await fetch('/api/real-assets', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await response.json();
+      if (response.ok && result.success) {
+        setRealAssets(result.data || []);
+      }
+    } catch (error) {
+      console.error('加载演员素材失败:', error);
+    } finally {
+      setRealAssetsLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (materialTab === 'products' && products.length === 0) {
+      loadProducts();
+    }
+    if (materialTab === 'actors' && realAssets.length === 0) {
+      loadRealAssets();
+    }
+  }, [materialTab, products.length, realAssets.length, loadProducts, loadRealAssets]);
 
   // 搜索防抖
   useEffect(() => {
@@ -292,6 +372,18 @@ export default function MaterialHistoryPage() {
     return modelNames[model] || model;
   };
 
+  const copyAssetRef = async (assetId: string) => {
+    try {
+      await navigator.clipboard.writeText(`asset://${assetId}`);
+      setSyncToast(`已复制 asset://${assetId}`);
+      setTimeout(() => setSyncToast(null), 2500);
+    } catch (error) {
+      console.error('复制演员引用失败:', error);
+      setSyncToast('复制失败，请手动复制');
+      setTimeout(() => setSyncToast(null), 2500);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -305,77 +397,116 @@ export default function MaterialHistoryPage() {
           </div>
         )}
 
-        {/* 页面标题 */}
         <div>
-          <h1 className="text-2xl font-bold">素材历史</h1>
-          <p className="text-muted-foreground">
-            {canViewTeam ? '查看个人和团队的素材生成历史' : '查看您的素材生成历史'}
-          </p>
+          <h1 className="text-2xl font-bold">素材中心</h1>
+          <p className="text-muted-foreground">统一管理视频素材、商品素材和演员素材</p>
         </div>
 
-        {/* 搜索和筛选区域 */}
-        <div className="flex flex-wrap gap-4 items-center">
-          {/* 搜索框 */}
-          <div className="flex-1 min-w-[200px]">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="搜索视频名、标签、描述..."
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                className="pl-9"
-              />
+        <Tabs value={materialTab} onValueChange={(value) => setMaterialTab(value as 'videos' | 'products' | 'actors')}>
+          <TabsList>
+            <TabsTrigger value="videos">
+              <Film className="h-4 w-4 mr-2" />
+              视频素材
+            </TabsTrigger>
+            <TabsTrigger value="products">
+              <Package className="h-4 w-4 mr-2" />
+              商品素材
+            </TabsTrigger>
+            <TabsTrigger value="actors">
+              <Users className="h-4 w-4 mr-2" />
+              演员素材
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="videos" className="mt-6 space-y-6">
+            <div className="flex flex-wrap gap-4 items-center">
+              <div className="flex-1 min-w-[200px]">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="搜索视频名、标签、描述..."
+                    value={keyword}
+                    onChange={(e) => setKeyword(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+
+              <Select value={categoryFilter} onValueChange={handleCategoryChange}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="分类筛选" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CATEGORIES.map((cat) => (
+                    <SelectItem key={cat.value} value={cat.value}>
+                      {cat.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={statusFilter} onValueChange={handleStatusChange}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="状态筛选" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部状态</SelectItem>
+                  <SelectItem value="completed">已完成</SelectItem>
+                  <SelectItem value="processing">生成中</SelectItem>
+                  <SelectItem value="failed">失败</SelectItem>
+                  <SelectItem value="pending">等待中</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Button variant="outline" size="icon" onClick={loadHistory}>
+                <RefreshCw className="h-4 w-4" />
+              </Button>
             </div>
-          </div>
 
-          {/* 分类筛选 */}
-          <Select value={categoryFilter} onValueChange={handleCategoryChange}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="分类筛选" />
-            </SelectTrigger>
-            <SelectContent>
-              {CATEGORIES.map((cat) => (
-                <SelectItem key={cat.value} value={cat.value}>
-                  {cat.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            {canViewTeam ? (
+              <Tabs value={activeTab} onValueChange={handleTabChange}>
+                <TabsList>
+                  <TabsTrigger value="personal">
+                    <User className="h-4 w-4 mr-2" />
+                    我的素材
+                  </TabsTrigger>
+                  <TabsTrigger value="team">
+                    <Film className="h-4 w-4 mr-2" />
+                    {teamTabLabel}
+                  </TabsTrigger>
+                </TabsList>
 
-          {/* 状态筛选 */}
-          <Select value={statusFilter} onValueChange={handleStatusChange}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="状态筛选" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部状态</SelectItem>
-              <SelectItem value="completed">已完成</SelectItem>
-              <SelectItem value="processing">生成中</SelectItem>
-              <SelectItem value="failed">失败</SelectItem>
-              <SelectItem value="pending">等待中</SelectItem>
-            </SelectContent>
-          </Select>
+                <TabsContent value="personal" className="mt-6">
+                  <VideoGrid
+                    loading={loading}
+                    videos={data?.videos || []}
+                    onDownload={handleDownload}
+                    onSyncToLibrary={handleSyncToLibrary}
+                    onViewDetails={setSelectedVideo}
+                    getStatusBadge={getStatusBadge}
+                    formatDate={formatDate}
+                    showUser={false}
+                    getModelName={getModelName}
+                    isNewlyCreated={isNewlyCreated}
+                  />
+                </TabsContent>
 
-          <Button variant="outline" size="icon" onClick={loadHistory}>
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-        </div>
-
-        {/* 标签页切换 */}
-        {canViewTeam ? (
-          <Tabs value={activeTab} onValueChange={handleTabChange}>
-            <TabsList>
-              <TabsTrigger value="personal">
-                <User className="h-4 w-4 mr-2" />
-                我的素材
-              </TabsTrigger>
-              <TabsTrigger value="team">
-                <Film className="h-4 w-4 mr-2" />
-                {teamTabLabel}
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="personal" className="mt-6">
+                <TabsContent value="team" className="mt-6">
+                  <VideoGrid
+                    loading={loading}
+                    videos={data?.videos || []}
+                    onDownload={handleDownload}
+                    onSyncToLibrary={handleSyncToLibrary}
+                    onViewDetails={setSelectedVideo}
+                    getStatusBadge={getStatusBadge}
+                    formatDate={formatDate}
+                    showUser={true}
+                    getModelName={getModelName}
+                    isNewlyCreated={isNewlyCreated}
+                  />
+                </TabsContent>
+              </Tabs>
+            ) : (
               <VideoGrid
                 loading={loading}
                 videos={data?.videos || []}
@@ -388,74 +519,50 @@ export default function MaterialHistoryPage() {
                 getModelName={getModelName}
                 isNewlyCreated={isNewlyCreated}
               />
-            </TabsContent>
+            )}
 
-            <TabsContent value="team" className="mt-6">
-              <VideoGrid
-                loading={loading}
-                videos={data?.videos || []}
-                onDownload={handleDownload}
-                onSyncToLibrary={handleSyncToLibrary}
-                onViewDetails={setSelectedVideo}
-                getStatusBadge={getStatusBadge}
-                formatDate={formatDate}
-                showUser={true}
-                getModelName={getModelName}
-                isNewlyCreated={isNewlyCreated}
-              />
-            </TabsContent>
-          </Tabs>
-        ) : (
-          <VideoGrid
-            loading={loading}
-            videos={data?.videos || []}
-            onDownload={handleDownload}
-            onSyncToLibrary={handleSyncToLibrary}
-            onViewDetails={setSelectedVideo}
-            getStatusBadge={getStatusBadge}
-            formatDate={formatDate}
-            showUser={false}
-            getModelName={getModelName}
-            isNewlyCreated={isNewlyCreated}
-          />
-        )}
-
-        {/* 分页 */}
-        {data && data.pagination.totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2">
-            <Button
-              variant="outline"
-              disabled={page === 1}
-              onClick={() => setPage(page - 1)}
-            >
-              上一页
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              第 {page} / {data.pagination.totalPages} 页
-            </span>
-            <Button
-              variant="outline"
-              disabled={page >= data.pagination.totalPages}
-              onClick={() => setPage(page + 1)}
-            >
-              下一页
-            </Button>
-          </div>
-        )}
-
-        {/* 统计信息 */}
-        {data && (
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between text-sm text-muted-foreground">
-                <span>共 {data.pagination.total} 条记录</span>
-                {activeTab === 'team' && data.filter && (
-                  <span>筛选: {data.filter.userIds?.length || 0} 位成员</span>
-                )}
+            {data && data.pagination.totalPages > 1 && (
+              <div className="flex items-center justify-center gap-2">
+                <Button variant="outline" disabled={page === 1} onClick={() => setPage(page - 1)}>
+                  上一页
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  第 {page} / {data.pagination.totalPages} 页
+                </span>
+                <Button variant="outline" disabled={page >= data.pagination.totalPages} onClick={() => setPage(page + 1)}>
+                  下一页
+                </Button>
               </div>
-            </CardContent>
-          </Card>
-        )}
+            )}
+
+            {data && (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between text-sm text-muted-foreground">
+                    <span>共 {data.pagination.total} 条记录</span>
+                    {activeTab === 'team' && data.filter && (
+                      <span>筛选: {data.filter.userIds?.length || 0} 位成员</span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          <TabsContent value="products" className="mt-6">
+            <ProductGrid products={products} loading={productsLoading} onRefresh={loadProducts} formatDate={formatDate} />
+          </TabsContent>
+
+          <TabsContent value="actors" className="mt-6">
+            <RealAssetGrid
+              assets={realAssets}
+              loading={realAssetsLoading}
+              onRefresh={loadRealAssets}
+              onCopyAssetRef={copyAssetRef}
+              formatDate={formatDate}
+            />
+          </TabsContent>
+        </Tabs>
 
         {/* 创作详情弹窗 */}
         {selectedVideo && (
@@ -588,6 +695,170 @@ export default function MaterialHistoryPage() {
         )}
       </div>
     </DashboardLayout>
+  );
+}
+
+function ProductGrid({
+  products,
+  loading,
+  onRefresh,
+  formatDate,
+}: {
+  products: ProductItem[];
+  loading: boolean;
+  onRefresh: () => void;
+  formatDate: (date: string) => string;
+}) {
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {[1, 2, 3].map((i) => (
+          <Card key={i}>
+            <CardHeader className="pb-2">
+              <Skeleton className="h-4 w-2/3" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-32 w-full" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  if (products.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center">
+          <Package className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+          <p className="text-muted-foreground mb-4">暂无商品素材</p>
+          <Button variant="outline" onClick={onRefresh}>刷新</Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" onClick={onRefresh}>
+          <RefreshCw className="h-4 w-4 mr-1" />
+          刷新
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {products.map((product) => (
+          <Card key={product.id}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base line-clamp-1">{product.product_name}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {product.images?.[0]?.url ? (
+                <img
+                  src={product.images[0].url}
+                  alt={product.product_name}
+                  className="w-full h-32 rounded border object-cover"
+                />
+              ) : (
+                <div className="w-full h-32 rounded border bg-muted flex items-center justify-center text-xs text-muted-foreground">
+                  暂无图片
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground line-clamp-2">{product.product_description || '暂无描述'}</p>
+              <div className="text-xs text-muted-foreground flex justify-between">
+                <span>图片 {product.images?.length || 0} 张</span>
+                <span>使用 {product.usage_count || 0} 次</span>
+              </div>
+              <p className="text-xs text-muted-foreground">创建于 {formatDate(product.created_at)}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RealAssetGrid({
+  assets,
+  loading,
+  onRefresh,
+  onCopyAssetRef,
+  formatDate,
+}: {
+  assets: RealAsset[];
+  loading: boolean;
+  onRefresh: () => void;
+  onCopyAssetRef: (assetId: string) => void;
+  formatDate: (date: string) => string;
+}) {
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {[1, 2, 3].map((i) => (
+          <Card key={i}>
+            <CardHeader className="pb-2">
+              <Skeleton className="h-4 w-2/3" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-32 w-full" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  if (assets.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center">
+          <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+          <p className="text-muted-foreground mb-4">暂无演员素材</p>
+          <Button variant="outline" onClick={onRefresh}>刷新</Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" onClick={onRefresh}>
+          <RefreshCw className="h-4 w-4 mr-1" />
+          刷新
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {assets.map((asset) => (
+          <Card key={asset.id}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base line-clamp-1">{asset.name}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {asset.asset_url ? (
+                <img src={asset.asset_url} alt={asset.name} className="w-full h-32 rounded border object-cover" />
+              ) : (
+                <div className="w-full h-32 rounded border bg-muted flex items-center justify-center text-xs text-muted-foreground">
+                  暂无预览图
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground line-clamp-2">{asset.description || '暂无描述'}</p>
+              <div className="rounded border px-2 py-1 font-mono text-xs break-all">asset://{asset.asset_id}</div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" className="flex-1" onClick={() => onCopyAssetRef(asset.asset_id)}>
+                  <Copy className="h-3 w-3 mr-1" />
+                  复制引用
+                </Button>
+                <Badge variant={asset.status === 'active' ? 'outline' : 'secondary'}>
+                  {asset.status === 'active' ? '启用中' : '已停用'}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">更新时间 {formatDate(asset.updated_at)}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
   );
 }
 

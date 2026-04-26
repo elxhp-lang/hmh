@@ -336,6 +336,28 @@ export const xiaohaiWorkflows = pgTable(
   ]
 );
 
+// ========== 真人演员素材库（全平台共享）==========
+export const realAssets = pgTable(
+  "real_assets",
+  {
+    id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+    asset_id: text("asset_id").notNull(),
+    asset_url: text("asset_url"),
+    name: text("name").notNull(),
+    description: text("description"),
+    category: text("category"),
+    status: varchar("status", { length: 20 }).notNull().default('active'),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("idx_real_assets_asset_id").on(table.asset_id),
+    index("idx_real_assets_name").on(table.name),
+    index("idx_real_assets_category").on(table.category),
+    index("idx_real_assets_status").on(table.status),
+  ]
+);
+
 // ========== Zod Schemas ==========
 const { createInsertSchema: createCoercedInsertSchema } = createSchemaFactory({ coerce: { date: true } });
 
@@ -374,6 +396,7 @@ export type FinanceSnapshot = typeof financeSnapshots.$inferSelect;
 export type UploadedFile = typeof uploadedFiles.$inferSelect;
 export type DailyStat = typeof dailyStats.$inferSelect;
 export type XiaohaiWorkflow = typeof xiaohaiWorkflows.$inferSelect;
+export type RealAsset = typeof realAssets.$inferSelect;
 
 // ========== 双笔记本系统 ==========
 // ========== 对话历史表（笔记本1号：24小时清理）==========

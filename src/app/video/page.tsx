@@ -89,8 +89,18 @@ interface VideoGenerateRequest {
   referenceImages?: string[];
   referenceVideos?: string[];
   referenceAudios?: string[];
+  realAssetId?: string;
   videoUrl?: string;
   videoUrls?: string[];
+}
+
+interface RealAsset {
+  id: string;
+  asset_id: string;
+  asset_url?: string;
+  name: string;
+  category?: string;
+  status: 'active' | 'inactive';
 }
 
 export default function VideoPage() {
@@ -107,6 +117,9 @@ export default function VideoPage() {
   const [generateAudio, setGenerateAudio] = useState(true);
   const [watermark, setWatermark] = useState(false);
   const [webSearch, setWebSearch] = useState(false);
+  const [realAssets, setRealAssets] = useState<RealAsset[]>([]);
+  const [loadingRealAssets, setLoadingRealAssets] = useState(false);
+  const [selectedRealAssetId, setSelectedRealAssetId] = useState('');
 
   // 文生视频
   const [textPrompt, setTextPrompt] = useState('');
@@ -167,6 +180,11 @@ export default function VideoPage() {
     loadHistory();
   }, []);
 
+  useEffect(() => {
+    if (!token) return;
+    loadRealAssets();
+  }, [token]);
+
   // 组件卸载时清理所有定时器
   useEffect(() => {
     return () => {
@@ -201,6 +219,24 @@ export default function VideoPage() {
       }
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const loadRealAssets = async () => {
+    try {
+      setLoadingRealAssets(true);
+      const response = await fetch('/api/real-assets?status=active', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) return;
+      const data = await response.json();
+      setRealAssets(data.assets || []);
+    } catch (error) {
+      console.error('加载演员素材失败:', error);
+    } finally {
+      setLoadingRealAssets(false);
     }
   };
 
@@ -530,6 +566,10 @@ export default function VideoPage() {
       }
       requestBody.prompt = extendPrompt;
       requestBody.taskType = 'extend';
+    }
+
+    if (requestBody.taskType === 'generate' && selectedRealAssetId) {
+      requestBody.realAssetId = selectedRealAssetId;
     }
 
     return requestBody;
@@ -1414,6 +1454,43 @@ export default function VideoPage() {
                 <CardTitle>生成参数</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label>演员素材（可选）</Label>
+                  <Select
+                    value={selectedRealAssetId || 'none'}
+                    onValueChange={(v) => setSelectedRealAssetId(v === 'none' ? '' : v)}
+                    disabled={cooldown || loadingRealAssets}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="不使用演员素材" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">不使用演员素材</SelectItem>
+                      {realAssets.map((asset) => (
+                        <SelectItem key={asset.id} value={asset.asset_id}>
+                          {asset.name}{asset.category ? ` (${asset.category})` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedRealAssetId && (
+                    <p className="text-xs text-muted-foreground font-mono">
+                      引用：asset://{selectedRealAssetId}
+                    </p>
+                  )}
+                  {selectedRealAssetId && (
+                    (() => {
+                      const current = realAssets.find(a => a.asset_id === selectedRealAssetId);
+                      if (!current?.asset_url) return null;
+                      return (
+                        <div className="rounded border overflow-hidden bg-muted mt-2">
+                          <img src={current.asset_url} alt={current.name} className="w-full h-24 object-cover" />
+                        </div>
+                      );
+                    })()
+                  )}
+                </div>
+
                 <div className="space-y-2">
                   <Label>模型选择</Label>
                   <Select value={model} onValueChange={(v) => setModel(v as SeedanceModel)} disabled={cooldown}>

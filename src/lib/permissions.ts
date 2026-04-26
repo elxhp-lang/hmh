@@ -47,7 +47,7 @@ export const PAGE_PERMISSIONS: Record<string, UserRole[]> = {
   // 商品图库 - 素材相关角色可访问
   '/product-library': ['super_admin', 'material_leader', 'material_member'],
   
-  // 素材历史 - 仅超级管理员和素材团队可访问
+  // 素材中心 - 仅超级管理员和素材团队可访问
   '/material/history': ['super_admin', 'material_leader', 'material_member'],
   
   // 账单管理 - 超级管理员和财务可访问
@@ -75,7 +75,7 @@ export const NAV_CONFIG: Record<UserRole, Array<{
     { label: '创意小海', href: '/agent/create', icon: 'Sparkles' },
     { label: '学习库', href: '/learning-library', icon: 'Brain' },
     { label: '商品图库', href: '/product-library', icon: 'Package' },
-    { label: '素材历史', href: '/material/history', icon: 'History' },
+    { label: '素材中心', href: '/material/history', icon: 'History' },
     { label: '账单管理', href: '/billing', icon: 'Receipt' },
     { label: '智能助手', href: '/agent', icon: 'MessageSquare' },
     { label: '用户管理', href: '/admin/users', icon: 'Users' },
@@ -91,7 +91,7 @@ export const NAV_CONFIG: Record<UserRole, Array<{
     { label: '创意小海', href: '/agent/create', icon: 'Sparkles' },
     { label: '学习库', href: '/learning-library', icon: 'Brain' },
     { label: '商品图库', href: '/product-library', icon: 'Package' },
-    { label: '素材历史', href: '/material/history', icon: 'History' },
+    { label: '素材中心', href: '/material/history', icon: 'History' },
     { label: '智能助手', href: '/agent', icon: 'MessageSquare' },
   ],
   material_member: [
@@ -100,7 +100,7 @@ export const NAV_CONFIG: Record<UserRole, Array<{
     { label: '创意小海', href: '/agent/create', icon: 'Sparkles' },
     { label: '学习库', href: '/learning-library', icon: 'Brain' },
     { label: '商品图库', href: '/product-library', icon: 'Package' },
-    { label: '素材历史', href: '/material/history', icon: 'History' },
+    { label: '素材中心', href: '/material/history', icon: 'History' },
     { label: '智能助手', href: '/agent', icon: 'MessageSquare' },
   ],
 };

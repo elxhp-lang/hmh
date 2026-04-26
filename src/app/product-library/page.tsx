@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -41,6 +42,8 @@ import {
   Grid3X3,
   Check,
   AlertCircle,
+  Users,
+  Copy,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -68,6 +71,18 @@ interface Product {
   updated_at: string;
 }
 
+interface RealAsset {
+  id: string;
+  asset_id: string;
+  asset_url?: string;
+  name: string;
+  description?: string;
+  category?: string;
+  status: 'active' | 'inactive';
+  created_at: string;
+  updated_at: string;
+}
+
 /** 视角选项 */
 const VIEW_OPTIONS = [
   { value: '正面', label: '正面' },
@@ -85,6 +100,7 @@ export default function ProductLibraryPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<'products' | 'actors'>('products');
 
   // 创建商品对话框
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -110,6 +126,9 @@ export default function ProductLibraryPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [realAssets, setRealAssets] = useState<RealAsset[]>([]);
+  const [realAssetsLoading, setRealAssetsLoading] = useState(false);
+  const [realAssetKeyword, setRealAssetKeyword] = useState('');
 
   // 加载商品列表
   const loadProducts = useCallback(async () => {
@@ -137,9 +156,40 @@ export default function ProductLibraryPage() {
     }
   }, [token, searchQuery]);
 
+  const loadRealAssets = useCallback(async () => {
+    if (!token) return;
+    setRealAssetsLoading(true);
+    try {
+      const params = new URLSearchParams({ status: 'all' });
+      if (realAssetKeyword.trim()) {
+        params.set('keyword', realAssetKeyword.trim());
+      }
+      const response = await fetch(`/api/real-assets?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setRealAssets(data.assets || []);
+      } else {
+        toast.error('加载演员素材失败');
+      }
+    } catch (error) {
+      console.error('加载演员素材失败:', error);
+      toast.error('加载演员素材失败');
+    } finally {
+      setRealAssetsLoading(false);
+    }
+  }, [token, realAssetKeyword]);
+
   useEffect(() => {
     loadProducts();
   }, [loadProducts]);
+
+  useEffect(() => {
+    if (activeTab === 'actors') {
+      loadRealAssets();
+    }
+  }, [activeTab, loadRealAssets]);
 
   // 创建商品
   const handleCreateProduct = async () => {
@@ -296,6 +346,15 @@ export default function ProductLibraryPage() {
     setDetailDialogOpen(true);
   };
 
+  const copyAssetReference = async (assetId: string) => {
+    try {
+      await navigator.clipboard.writeText(`asset://${assetId}`);
+      toast.success('已复制 asset 引用');
+    } catch {
+      toast.error('复制失败，请手动复制');
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -308,154 +367,256 @@ export default function ProductLibraryPage() {
                 <Package className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold">商品图库</h1>
+                <h1 className="text-2xl font-bold">素材库</h1>
                 <p className="text-muted-foreground">
-                  管理商品图片，支持多视角上传。创意小海会自动识别商品并生成视频。
+                  统一管理商品素材与演员素材。演员素材生成时使用 asset:// 引用，asset_url 用于预览。
                 </p>
               </div>
             </div>
-            <Button onClick={() => setCreateDialogOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              添加商品
-            </Button>
-          </div>
-        </div>
-
-        {/* 搜索栏 */}
-        <div className="flex items-center gap-4">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="搜索商品名称..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-          <Badge variant="secondary" className="h-6">
-            共 {products.length} 个商品
-          </Badge>
-        </div>
-
-        {/* 商品列表 */}
-        {loading ? (
-          <div className="flex items-center justify-center h-64">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </div>
-        ) : products.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center h-64">
-              <Package className="h-12 w-12 text-muted-foreground mb-4" />
-              <p className="text-muted-foreground mb-4">暂无商品</p>
+            {activeTab === 'products' && (
               <Button onClick={() => setCreateDialogOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
-                添加第一个商品
+                添加商品
               </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {products.map((product) => (
-              <Card key={product.id} className="overflow-hidden">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <CardTitle className="text-lg">{product.product_name}</CardTitle>
-                      {product.category && (
-                        <Badge variant="outline" className="mt-1">
-                          {product.category}
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => viewProductDetail(product)}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          setDeletingProduct(product);
-                          setDeleteDialogOpen(true);
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {product.product_description && (
-                    <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
-                      {product.product_description}
-                    </p>
-                  )}
+            )}
+          </div>
+        </div>
 
-                  {/* 图片预览 */}
-                  <div className="mb-3">
-                    {product.images.length > 0 ? (
-                      <div className="grid grid-cols-4 gap-1">
-                        {product.images.slice(0, 4).map((img, index) => (
-                          <div
-                            key={img.key}
-                            className="aspect-square relative rounded overflow-hidden bg-muted"
+        <Tabs value={activeTab} onValueChange={value => setActiveTab(value as 'products' | 'actors')}>
+          <TabsList>
+            <TabsTrigger value="products">商品素材</TabsTrigger>
+            <TabsTrigger value="actors">演员素材</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="products" className="space-y-6 mt-4">
+            {/* 搜索栏 */}
+            <div className="flex items-center gap-4">
+              <div className="relative flex-1 max-w-sm">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="搜索商品名称..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <Badge variant="secondary" className="h-6">
+                共 {products.length} 个商品
+              </Badge>
+            </div>
+
+            {/* 商品列表 */}
+            {loading ? (
+              <div className="flex items-center justify-center h-64">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : products.length === 0 ? (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center h-64">
+                  <Package className="h-12 w-12 text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground mb-4">暂无商品</p>
+                  <Button onClick={() => setCreateDialogOpen(true)}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    添加第一个商品
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {products.map((product) => (
+                  <Card key={product.id} className="overflow-hidden">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <CardTitle className="text-lg">{product.product_name}</CardTitle>
+                          {product.category && (
+                            <Badge variant="outline" className="mt-1">
+                              {product.category}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => viewProductDetail(product)}
                           >
-                            <img
-                              src={img.url}
-                              alt={img.view_name}
-                              className="w-full h-full object-cover"
-                            />
-                            <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-0.5 text-center">
-                              {img.view_name}
-                            </div>
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setDeletingProduct(product);
+                              setDeleteDialogOpen(true);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {product.product_description && (
+                        <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
+                          {product.product_description}
+                        </p>
+                      )}
+
+                      {/* 图片预览 */}
+                      <div className="mb-3">
+                        {product.images.length > 0 ? (
+                          <div className="grid grid-cols-4 gap-1">
+                            {product.images.slice(0, 4).map((img) => (
+                              <div
+                                key={img.key}
+                                className="aspect-square relative rounded overflow-hidden bg-muted"
+                              >
+                                <img
+                                  src={img.url}
+                                  alt={img.view_name}
+                                  className="w-full h-full object-cover"
+                                />
+                                <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-0.5 text-center">
+                                  {img.view_name}
+                                </div>
+                              </div>
+                            ))}
+                            {product.images.length > 4 && (
+                              <div className="aspect-square rounded bg-muted flex items-center justify-center text-sm text-muted-foreground">
+                                +{product.images.length - 4}
+                              </div>
+                            )}
                           </div>
-                        ))}
-                        {product.images.length > 4 && (
-                          <div className="aspect-square rounded bg-muted flex items-center justify-center text-sm text-muted-foreground">
-                            +{product.images.length - 4}
+                        ) : (
+                          <div className="aspect-video rounded bg-muted flex items-center justify-center">
+                            <div className="text-center text-muted-foreground">
+                              <ImageIcon className="h-8 w-8 mx-auto mb-1" />
+                              <p className="text-xs">暂无图片</p>
+                            </div>
                           </div>
                         )}
                       </div>
-                    ) : (
-                      <div className="aspect-video rounded bg-muted flex items-center justify-center">
-                        <div className="text-center text-muted-foreground">
-                          <ImageIcon className="h-8 w-8 mx-auto mb-1" />
-                          <p className="text-xs">暂无图片</p>
-                        </div>
+
+                      {/* 图片数量和操作 */}
+                      <div className="flex items-center justify-between">
+                        <Badge variant="secondary">
+                          {product.images.length} 张图片
+                        </Badge>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openUploadDialog(product)}
+                        >
+                          <Upload className="mr-1 h-3 w-3" />
+                          上传
+                        </Button>
                       </div>
-                    )}
-                  </div>
 
-                  {/* 图片数量和操作 */}
-                  <div className="flex items-center justify-between">
-                    <Badge variant="secondary">
-                      {product.images.length} 张图片
-                    </Badge>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openUploadDialog(product)}
-                    >
-                      <Upload className="mr-1 h-3 w-3" />
-                      上传
-                    </Button>
-                  </div>
+                      {/* 使用统计 */}
+                      {product.usage_count > 0 && (
+                        <p className="text-xs text-muted-foreground mt-2">
+                          已使用 {product.usage_count} 次
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
 
-                  {/* 使用统计 */}
-                  {product.usage_count > 0 && (
-                    <p className="text-xs text-muted-foreground mt-2">
-                      已使用 {product.usage_count} 次
-                    </p>
-                  )}
+          <TabsContent value="actors" className="space-y-6 mt-4">
+            <div className="flex items-center gap-4">
+              <div className="relative flex-1 max-w-sm">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="搜索演员名称..."
+                  value={realAssetKeyword}
+                  onChange={(e) => setRealAssetKeyword(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <Button variant="outline" onClick={loadRealAssets}>刷新</Button>
+              <Badge variant="secondary" className="h-6">
+                共 {realAssets.length} 个演员素材
+              </Badge>
+            </div>
+
+            {realAssetsLoading ? (
+              <div className="flex items-center justify-center h-64">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : realAssets.length === 0 ? (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center h-64">
+                  <Users className="h-12 w-12 text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground mb-2">暂无演员素材</p>
+                  <p className="text-xs text-muted-foreground">请由管理员在 /api/real-assets 录入素材</p>
                 </CardContent>
               </Card>
-            ))}
-          </div>
-        )}
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {realAssets.map(asset => (
+                  <Card key={asset.id} className="overflow-hidden">
+                    <CardContent className="p-4">
+                      <div className="aspect-video rounded-md bg-muted overflow-hidden mb-3">
+                        {asset.asset_url ? (
+                          <img
+                            src={asset.asset_url}
+                            alt={asset.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">
+                            无预览图
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-medium truncate">{asset.name}</p>
+                          <Badge variant={asset.status === 'active' ? 'default' : 'secondary'}>
+                            {asset.status}
+                          </Badge>
+                        </div>
+                        {asset.category && (
+                          <p className="text-xs text-muted-foreground">分类：{asset.category}</p>
+                        )}
+                        {asset.description && (
+                          <p className="text-xs text-muted-foreground line-clamp-2">{asset.description}</p>
+                        )}
+                        <div className="rounded border bg-muted/30 px-2 py-1 text-xs font-mono break-all">
+                          asset://{asset.asset_id}
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1"
+                            onClick={() => copyAssetReference(asset.asset_id)}
+                          >
+                            <Copy className="mr-1 h-3 w-3" />
+                            复制引用
+                          </Button>
+                          {asset.asset_url && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => window.open(asset.asset_url, '_blank')}
+                            >
+                              <Eye className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* 创建商品对话框 */}
