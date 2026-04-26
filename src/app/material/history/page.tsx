@@ -270,6 +270,11 @@ export default function MaterialHistoryPage() {
     setPage(1);
   };
 
+  const applyTagFilter = (tag: string) => {
+    setTagKeyword(tag);
+    setPage(1);
+  };
+
   const resetAllFilters = () => {
     setActiveTab('personal');
     setStatusFilter('all');
@@ -614,6 +619,7 @@ export default function MaterialHistoryPage() {
                     onRemix={handleRemix}
                     remixingIds={remixingIds}
                     onOpenSourceVideo={handleOpenSourceVideo}
+                    onTagClick={applyTagFilter}
                   />
                 </TabsContent>
 
@@ -632,6 +638,7 @@ export default function MaterialHistoryPage() {
                     onRemix={handleRemix}
                     remixingIds={remixingIds}
                     onOpenSourceVideo={handleOpenSourceVideo}
+                    onTagClick={applyTagFilter}
                   />
                 </TabsContent>
               </Tabs>
@@ -650,6 +657,7 @@ export default function MaterialHistoryPage() {
                 onRemix={handleRemix}
                 remixingIds={remixingIds}
                 onOpenSourceVideo={handleOpenSourceVideo}
+                onTagClick={applyTagFilter}
               />
             )}
 
@@ -761,7 +769,14 @@ export default function MaterialHistoryPage() {
                           <Badge variant="secondary">{selectedVideo.category}</Badge>
                         )}
                         {selectedVideo.tags?.map((tag, index) => (
-                          <Badge key={index} variant="outline">{tag}</Badge>
+                          <button
+                            type="button"
+                            key={index}
+                            onClick={() => applyTagFilter(tag)}
+                            className="inline-flex"
+                          >
+                            <Badge variant="outline">{tag}</Badge>
+                          </button>
                         ))}
                       </div>
                     </div>
@@ -862,6 +877,7 @@ function VideoGrid({
   onRemix,
   remixingIds,
   onOpenSourceVideo,
+  onTagClick,
 }: {
   loading: boolean;
   videos: VideoItem[];
@@ -876,6 +892,7 @@ function VideoGrid({
   onRemix: (video: VideoItem) => void;
   remixingIds: Set<string>;
   onOpenSourceVideo: (video: VideoItem) => void;
+  onTagClick: (tag: string) => void;
 }) {
   if (loading) {
     return (
@@ -978,9 +995,16 @@ function VideoGrid({
                 <div className="flex items-center gap-1 flex-wrap">
                   <Tag className="h-3 w-3" />
                   {video.tags.slice(0, 3).map((tag, index) => (
-                    <Badge key={index} variant="outline" className="text-xs">
-                      {tag}
-                    </Badge>
+                    <button
+                      type="button"
+                      key={index}
+                      onClick={() => onTagClick(tag)}
+                      className="inline-flex"
+                    >
+                      <Badge variant="outline" className="text-xs">
+                        {tag}
+                      </Badge>
+                    </button>
                   ))}
                   {video.tags.length > 3 && (
                     <span className="text-xs">+{video.tags.length - 3}</span>
