@@ -57,6 +57,9 @@ export const videos = pgTable(
     generate_audio: boolean("generate_audio").default(true),
     watermark: boolean("watermark").default(false),
     web_search: boolean("web_search").default(false),
+    source_video_id: varchar("source_video_id", { length: 36 }),
+    source_task_id: varchar("source_task_id", { length: 100 }),
+    is_remix: boolean("is_remix").notNull().default(false),
     status: varchar("status", { length: 20 }).notNull().default('pending'), // pending, processing, completed, failed
     seedance_task_id: varchar("seedance_task_id", { length: 100 }), // Seedance 任务 ID（仅用于查询进度）
     result_url: varchar("result_url", { length: 500 }), // 生成视频临时 URL（火山引擎返回）
@@ -80,6 +83,8 @@ export const videos = pgTable(
     index("videos_tos_key_idx").on(table.tos_key),
     index("videos_seedance_task_id_idx").on(table.seedance_task_id),
     index("videos_category_idx").on(table.category),
+    index("videos_source_video_id_idx").on(table.source_video_id),
+    index("videos_is_remix_idx").on(table.is_remix),
   ]
 );
 

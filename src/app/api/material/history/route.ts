@@ -88,6 +88,13 @@ export async function GET(request: NextRequest) {
         copywriting,
         tags,
         category,
+        reference_images,
+        generate_audio,
+        watermark,
+        web_search,
+        source_video_id,
+        source_task_id,
+        is_remix,
         task_type,
         status,
         tos_key,
@@ -167,6 +174,13 @@ export async function GET(request: NextRequest) {
       copywriting?: string | null;
       tags?: string[] | null;
       category?: string | null;
+      reference_images?: string[] | null;
+      generate_audio?: boolean | null;
+      watermark?: boolean | null;
+      web_search?: boolean | null;
+      source_video_id?: string | null;
+      source_task_id?: string | null;
+      is_remix?: boolean | null;
       task_type: string;
       status: string;
       tos_key: string | null;
@@ -200,6 +214,13 @@ export async function GET(request: NextRequest) {
             copywriting: (v.copywriting as string) || null,
             tags: (v.tags as string[]) || [],
             category: (v.category as string) || null,
+            reference_images: (v.reference_images as string[]) || [],
+            generate_audio: v.generate_audio ?? true,
+            watermark: v.watermark ?? false,
+            web_search: v.web_search ?? false,
+            source_video_id: (v.source_video_id as string) || null,
+            source_task_id: (v.source_task_id as string) || null,
+            is_remix: Boolean(v.is_remix),
             task_type: v.task_type || 'text_to_video',
             status: v.status || 'completed',
             tos_key: v.tos_key,

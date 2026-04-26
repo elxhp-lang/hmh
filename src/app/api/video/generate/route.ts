@@ -72,6 +72,9 @@ export async function POST(request: NextRequest) {
       realAssetId,
       referenceVideos = [],
       referenceAudios = [],
+      sourceVideoId,
+      sourceTaskId,
+      isRemix = false,
       ratio = '16:9',
       duration = 5,
       generateAudio = true,
@@ -124,6 +127,9 @@ export async function POST(request: NextRequest) {
         generate_audio: generateAudio,
         watermark,
         web_search: webSearch,
+        source_video_id: sourceVideoId || null,
+        source_task_id: sourceTaskId || null,
+        is_remix: Boolean(isRemix),
         status: 'processing',
       })
       .select()
