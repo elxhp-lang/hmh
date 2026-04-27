@@ -508,17 +508,29 @@ class QueryBuilderImpl<T extends Record<string, unknown> = Record<string, unknow
     ).join(', ');
 
     const updateParts = columns.map(col => `"${col}" = EXCLUDED."${col}"`);
+    const conflictColumns = this.resolveUpsertConflictColumns(columns);
+    const conflictClause = conflictColumns.length > 0
+      ? `ON CONFLICT (${conflictColumns.map((c) => `"${c}"`).join(', ')}) DO UPDATE SET ${updateParts.join(', ')}`
+      : 'ON CONFLICT DO NOTHING';
 
     const sql = `
       INSERT INTO "${this.tableName}" (${columns.map(c => `"${c}"`).join(', ')})
       VALUES ${placeholders}
-      ON CONFLICT DO UPDATE SET ${updateParts.join(', ')}
+      ${conflictClause}
       RETURNING *
     `;
 
     const flatParams = values.flat();
     const result: QueryResult<T> = await pool.query(sql, flatParams);
     return result.rows;
+  }
+
+  private resolveUpsertConflictColumns(columns: string[]): string[] {
+    if (columns.includes('id')) return ['id'];
+    if (columns.includes('user_id') && columns.includes('preference_type')) return ['user_id', 'preference_type'];
+    if (columns.includes('user_id') && columns.includes('memory_type')) return ['user_id', 'memory_type'];
+    if (columns.includes('user_id') && columns.includes('tool_name')) return ['user_id', 'tool_name'];
+    return [];
   }
 
   private async executeDelete(pool: Pool): Promise<T[]> {
