@@ -467,6 +467,10 @@ export async function POST(request: NextRequest) {
 
       finalSystemPrompt += `\n\n📕 用户偏好：\n${preferenceText}`;
     }
+    const memoryPromptOptOut = userPreferences.some((pref) =>
+      pref?.preference_type === 'memory_prompt_opt_out' &&
+      String(pref?.content || '').toLowerCase() === 'true'
+    );
 
     // 3. 构建用户消息
     let userMessageContent = message || '';
@@ -663,8 +667,8 @@ export async function POST(request: NextRequest) {
                 emitPart(part, 'url_extractor');
               }
               sendEvent({ type: 'text', content: assistantMessage });
-              const memoryCandidate = extractMemoryCandidate(userMessageContent);
-              if (memoryCandidate) {
+              const memoryCandidate = memoryPromptOptOut ? null : extractMemoryCandidate(userMessageContent);
+              if (memoryCandidate && !memoryPromptOptOut) {
                 sendEvent({ type: 'memory_candidate', data: memoryCandidate });
               }
               await persistAssistantParts();

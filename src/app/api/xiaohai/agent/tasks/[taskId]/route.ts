@@ -1,21 +1,17 @@
 import { NextRequest } from 'next/server';
-import { verifyToken } from '@/lib/auth';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
-import { getBearerToken, ok } from '@/lib/server/api-kit';
+import { fail, ok, requireAuth } from '@/lib/server/api-kit';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { taskId: string } }
 ) {
   try {
-    const token = getBearerToken(request);
-    if (!token) return ok(false, null, '未授权', 401);
-
-    const payload = verifyToken(token) as ({ userId?: string; user_id?: string } | null);
-    const userId = payload?.userId || payload?.user_id || null;
-    if (!userId) return ok(false, null, '令牌无效', 401);
+    const auth = requireAuth(request);
+    if (auth.response || !auth.user) return auth.response;
+    const userId = auth.user.userId;
     const taskId = params.taskId;
-    if (!taskId) return ok(false, null, '缺少 taskId', 400);
+    if (!taskId) return fail('缺少 taskId', 400);
 
     const supabase = getSupabaseClient();
     const [{ data: task }, { data: events }, { data: outputs }, { data: items }] = await Promise.all([
@@ -48,14 +44,17 @@ export async function GET(
         .limit(500),
     ]);
 
-    if (!task) return ok(false, null, '任务不存在', 404);
-    return ok(true, {
-      task,
-      events: events || [],
-      outputs: outputs || [],
-      items: items || [],
-    }, '任务详情加载成功');
+    if (!task) return fail('任务不存在', 404);
+    return ok({
+      data: {
+        task,
+        events: events || [],
+        outputs: outputs || [],
+        items: items || [],
+      },
+      message: '任务详情加载成功',
+    });
   } catch (error) {
-    return ok(false, null, `获取任务详情失败: ${error instanceof Error ? error.message : '未知错误'}`, 500);
+    return fail(`获取任务详情失败: ${error instanceof Error ? error.message : '未知错误'}`, 500);
   }
 }

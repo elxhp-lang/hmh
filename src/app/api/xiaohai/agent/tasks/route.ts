@@ -1,7 +1,6 @@
 import { NextRequest } from 'next/server';
-import { verifyToken } from '@/lib/auth';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
-import { getBearerToken, ok } from '@/lib/server/api-kit';
+import { fail, ok, requireAuth } from '@/lib/server/api-kit';
 
 type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'partial_succeeded';
 
@@ -16,12 +15,9 @@ function normalizeStatus(value: string | null): TaskStatus | null {
 
 export async function GET(request: NextRequest) {
   try {
-    const token = getBearerToken(request);
-    if (!token) return ok(false, null, '未授权', 401);
-
-    const payload = verifyToken(token) as ({ userId?: string; user_id?: string } | null);
-    const userId = payload?.userId || payload?.user_id || null;
-    if (!userId) return ok(false, null, '令牌无效', 401);
+    const auth = requireAuth(request);
+    if (auth.response || !auth.user) return auth.response;
+    const userId = auth.user.userId;
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get('sessionId');
     const status = normalizeStatus(searchParams.get('status'));
@@ -61,27 +57,24 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await query;
     if (error) {
-      return ok(false, null, `加载任务失败: ${error.message}`, 500);
+      return fail(`加载任务失败: ${error.message}`, 500);
     }
 
-    return ok(true, { tasks: data || [] }, '任务列表加载成功');
+    return ok({ data: { tasks: data || [] }, message: '任务列表加载成功' });
   } catch (error) {
-    return ok(false, null, `获取任务失败: ${error instanceof Error ? error.message : '未知错误'}`, 500);
+    return fail(`获取任务失败: ${error instanceof Error ? error.message : '未知错误'}`, 500);
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const token = getBearerToken(request);
-    if (!token) return ok(false, null, '未授权', 401);
-
-    const payload = verifyToken(token) as ({ userId?: string; user_id?: string } | null);
-    const userId = payload?.userId || payload?.user_id || null;
-    if (!userId) return ok(false, null, '令牌无效', 401);
+    const auth = requireAuth(request);
+    if (auth.response || !auth.user) return auth.response;
+    const userId = auth.user.userId;
     const body = await request.json().catch(() => ({}));
     const action = String(body?.action || '').trim();
     const taskId = String(body?.taskId || '').trim();
-    if (!action || !taskId) return ok(false, null, '缺少 action 或 taskId', 400);
+    if (!action || !taskId) return fail('缺少 action 或 taskId', 400);
 
     const supabase = getSupabaseClient();
 
@@ -99,8 +92,8 @@ export async function POST(request: NextRequest) {
         .in('status', ['queued', 'running'])
         .select('id,status,completed_at,error_message')
         .single();
-      if (error || !data) return ok(false, null, `取消任务失败: ${error?.message || '任务不存在'}`, 400);
-      return ok(true, { task: data }, '任务已取消');
+      if (error || !data) return fail(`取消任务失败: ${error?.message || '任务不存在'}`, 400);
+      return ok({ data: { task: data }, message: '任务已取消' });
     }
 
     if (action === 'retry') {
@@ -121,12 +114,12 @@ export async function POST(request: NextRequest) {
         .in('status', ['failed', 'cancelled', 'partial_succeeded'])
         .select('id,status,queued_at,retry_count')
         .single();
-      if (error || !data) return ok(false, null, `重试任务失败: ${error?.message || '任务不存在或状态不允许重试'}`, 400);
-      return ok(true, { task: data }, '任务已重新排队');
+      if (error || !data) return fail(`重试任务失败: ${error?.message || '任务不存在或状态不允许重试'}`, 400);
+      return ok({ data: { task: data }, message: '任务已重新排队' });
     }
 
-    return ok(false, null, '不支持的 action', 400);
+    return fail('不支持的 action', 400);
   } catch (error) {
-    return ok(false, null, `操作任务失败: ${error instanceof Error ? error.message : '未知错误'}`, 500);
+    return fail(`操作任务失败: ${error instanceof Error ? error.message : '未知错误'}`, 500);
   }
 }
