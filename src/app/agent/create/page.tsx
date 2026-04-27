@@ -656,8 +656,7 @@ export default function CreativeAgentPageNew() {
   const loadWorkerTasks = useCallback(async () => {
     if (!token) return;
     try {
-      const qs = activeSessionId ? `?sessionId=${activeSessionId}` : '';
-      const res = await fetch(`/api/xiaohai/agent/tasks${qs}`, {
+      const res = await fetch('/api/xiaohai/agent/tasks?limit=100', {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return;
@@ -666,7 +665,7 @@ export default function CreativeAgentPageNew() {
     } catch (error) {
       console.error('加载后台任务失败:', error);
     }
-  }, [token, activeSessionId]);
+  }, [token]);
 
   // ========== 双笔记本系统：加载历史消息 ==========
   useEffect(() => {

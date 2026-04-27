@@ -11,10 +11,9 @@ export async function GET(
     const token = getBearerToken(request);
     if (!token) return ok(false, null, '未授权', 401);
 
-    const payload = verifyToken(token);
-    if (!payload?.user_id) return ok(false, null, '令牌无效', 401);
-
-    const userId = payload.user_id;
+    const payload = verifyToken(token) as ({ userId?: string; user_id?: string } | null);
+    const userId = payload?.userId || payload?.user_id || null;
+    if (!userId) return ok(false, null, '令牌无效', 401);
     const taskId = params.taskId;
     if (!taskId) return ok(false, null, '缺少 taskId', 400);
 

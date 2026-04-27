@@ -19,10 +19,9 @@ export async function GET(request: NextRequest) {
     const token = getBearerToken(request);
     if (!token) return ok(false, null, '未授权', 401);
 
-    const payload = verifyToken(token);
-    if (!payload?.user_id) return ok(false, null, '令牌无效', 401);
-
-    const userId = payload.user_id;
+    const payload = verifyToken(token) as ({ userId?: string; user_id?: string } | null);
+    const userId = payload?.userId || payload?.user_id || null;
+    if (!userId) return ok(false, null, '令牌无效', 401);
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get('sessionId');
     const status = normalizeStatus(searchParams.get('status'));
@@ -76,10 +75,9 @@ export async function POST(request: NextRequest) {
     const token = getBearerToken(request);
     if (!token) return ok(false, null, '未授权', 401);
 
-    const payload = verifyToken(token);
-    if (!payload?.user_id) return ok(false, null, '令牌无效', 401);
-
-    const userId = payload.user_id;
+    const payload = verifyToken(token) as ({ userId?: string; user_id?: string } | null);
+    const userId = payload?.userId || payload?.user_id || null;
+    if (!userId) return ok(false, null, '令牌无效', 401);
     const body = await request.json().catch(() => ({}));
     const action = String(body?.action || '').trim();
     const taskId = String(body?.taskId || '').trim();
