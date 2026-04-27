@@ -1047,7 +1047,19 @@ export default function CreativeAgentPageNew() {
         return;
       }
       const outputs = (data?.data?.outputs || []) as Array<{ id: string; text_content?: string; parts?: MessagePart[]; created_at?: string }>;
-      if (!outputs.length) return;
+      const items = (data?.data?.items || []) as Array<{
+        id: string;
+        output_data?: {
+          result?: {
+            image_url?: string;
+            video_url?: string;
+            public_video_url?: string;
+            image_id?: string;
+          };
+        };
+        created_at?: string;
+      }>;
+
       const replayMessages: Message[] = outputs.map((item) => ({
         id: `task_${taskId}_${item.id}`,
         type: 'assistant',
@@ -1055,6 +1067,47 @@ export default function CreativeAgentPageNew() {
         timestamp: new Date(item.created_at || Date.now()),
         parts: normalizeMessageParts(item.parts),
       }));
+
+      if (replayMessages.length === 0) {
+        const previewMessages = items
+          .map((item, idx) => {
+            const result = item?.output_data?.result || {};
+            const imageUrl = typeof result.image_url === 'string' ? result.image_url : '';
+            const videoUrl = typeof result.public_video_url === 'string' ? result.public_video_url : (typeof result.video_url === 'string' ? result.video_url : '');
+            const parts: MessagePart[] = [];
+            if (imageUrl) {
+              parts.push({ type: 'image', url: imageUrl, alt: `任务预览图 ${idx + 1}` });
+            }
+            if (videoUrl) {
+              parts.push({ type: 'video', url: videoUrl });
+            }
+            if (parts.length === 0) return null;
+            return {
+              id: `task_preview_${taskId}_${item.id}`,
+              type: 'assistant' as const,
+              content: imageUrl
+                ? `第 ${idx + 1} 条任务已生成预览图，看看是否符合预期，我可以继续帮你优化。`
+                : `第 ${idx + 1} 条任务已生成视频结果，看看是否符合预期。`,
+              timestamp: new Date(item.created_at || Date.now()),
+              parts,
+            };
+          })
+          .filter((msg): msg is Message => !!msg);
+        replayMessages.push(...previewMessages);
+      }
+      if (!replayMessages.length) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: generateId('sys_task'),
+            type: 'system',
+            content: '该任务暂未产出可回放内容，可能仍在后台执行中，请稍后再试。',
+            timestamp: new Date(),
+          },
+        ]);
+        return;
+      }
+
       setMessages((prev) => {
         const known = new Set(prev.map((m) => m.id));
         const next = [...prev];

@@ -45,11 +45,44 @@ export async function GET(
     ]);
 
     if (!task) return fail('任务不存在', 404);
+
+    // 兜底：当 task_outputs 尚未写入时，从 worker_task_items 的 output_data 合成回放内容
+    let normalizedOutputs = outputs || [];
+    if ((!normalizedOutputs || normalizedOutputs.length === 0) && Array.isArray(items) && items.length > 0) {
+      normalizedOutputs = items
+        .map((item) => {
+          const raw = (item as { output_data?: unknown; created_at?: string; id?: string }).output_data;
+          if (!raw || typeof raw !== 'object') return null;
+          const data = raw as Record<string, unknown>;
+          const result = (data.result && typeof data.result === 'object') ? (data.result as Record<string, unknown>) : data;
+          const imageUrl = typeof result.image_url === 'string' ? result.image_url : null;
+          const videoUrl =
+            typeof result.public_video_url === 'string'
+              ? result.public_video_url
+              : (typeof result.video_url === 'string' ? result.video_url : null);
+          const parts: Array<Record<string, unknown>> = [];
+          if (imageUrl) parts.push({ type: 'image', url: imageUrl, alt: '任务预览图' });
+          if (videoUrl) parts.push({ type: 'video', url: videoUrl });
+          if (!parts.length) return null;
+          return {
+            id: `synth_${String((item as { id?: string }).id || Date.now())}`,
+            message_id: null,
+            output_type: 'assistant_message',
+            text_content: imageUrl
+              ? '任务已生成预览图，可继续对话让我帮你优化。'
+              : '任务已生成视频结果，可继续对话让我帮你优化。',
+            parts,
+            created_at: (item as { created_at?: string }).created_at || new Date().toISOString(),
+          };
+        })
+        .filter((x): x is { id: string; message_id: null; output_type: string; text_content: string; parts: Array<Record<string, unknown>>; created_at: string } => !!x);
+    }
+
     return ok({
       data: {
         task,
         events: events || [],
-        outputs: outputs || [],
+        outputs: normalizedOutputs || [],
         items: items || [],
       },
       message: '任务详情加载成功',

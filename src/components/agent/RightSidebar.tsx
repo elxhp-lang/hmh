@@ -448,7 +448,12 @@ function TaskRail({
             <p className="text-[11px] text-muted-foreground line-clamp-1">{task.id.slice(0, 12)}</p>
           )}
           <div className="flex items-center gap-1">
-            <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => onOpen(task.id)}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 min-w-[46px] text-[11px] px-2 font-medium text-foreground"
+              onClick={() => onOpen(task.id)}
+            >
               查看
             </Button>
             {task.status === 'failed' || task.status === 'cancelled' ? (
