@@ -590,13 +590,13 @@ export default function CreativeAgentPageNew() {
         setActiveSessionId(preferredSessionId);
         return;
       }
-      if (!activeSessionId && nextSessions.length > 0) {
-        setActiveSessionId(nextSessions[0].id);
+      if (nextSessions.length > 0) {
+        setActiveSessionId((prev) => prev || nextSessions[0].id);
       }
     } catch (error) {
       console.error('加载会话列表失败:', error);
     }
-  }, [token, activeSessionId]);
+  }, [token]);
 
   // ========== 双笔记本系统：加载历史消息 ==========
   useEffect(() => {
@@ -671,7 +671,7 @@ export default function CreativeAgentPageNew() {
     };
     
     fetchHistory();
-  }, [user?.user_id, token, activeSessionId]);
+  }, [user?.user_id, token, activeSessionId, sessionReady]);
 
   useEffect(() => {
     if (!user?.user_id || !token) return;
@@ -701,7 +701,7 @@ export default function CreativeAgentPageNew() {
     return () => {
       mounted = false;
     };
-  }, [user?.user_id, token, loadSessions]);
+  }, [user?.user_id, token]);
 
   const handleCreateSession = async () => {
     if (!token || isLoading || sessionLoading) return;
