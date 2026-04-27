@@ -109,15 +109,15 @@ export function MessageBubble({
       
       {/* 气泡内容 */}
       <div className={cn(
-        'max-w-[75%] flex flex-col',
+        'max-w-[78%] flex flex-col',
         isUser && 'items-end',
         isSystem && 'items-center'
       )}>
         {/* 消息内容 */}
         <div className={cn(
-          'relative rounded-2xl px-4 py-3 text-sm leading-relaxed',
-          isUser && 'bg-primary text-primary-foreground rounded-br-md',
-          !isUser && !isSystem && 'bg-muted rounded-bl-md',
+          'relative rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm border',
+          isUser && 'bg-primary text-primary-foreground rounded-br-md border-primary/30',
+          !isUser && !isSystem && 'bg-card rounded-bl-md border-border/60',
           isSystem && 'bg-muted/50 text-muted-foreground text-xs px-3 py-1.5 rounded-full',
           isStreaming && 'pr-10'
         )}>
@@ -202,7 +202,7 @@ export function MessageBubble({
         
         {/* 时间戳 */}
         <span className={cn(
-          'text-[10px] text-muted-foreground/60 mt-1 px-1',
+          'text-[10px] text-muted-foreground/60 mt-1 px-1 select-none',
           isUser && 'text-right'
         )}>
           {isStreaming ? '正在输入...' : formatTime(timestamp)}

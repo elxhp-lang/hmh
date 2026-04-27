@@ -161,7 +161,8 @@ export async function streamAgentRequest(
   body: unknown,
   token: string,
   onEvent: (event: SSEEvent) => void,
-  onError?: (error: Error) => void
+  onError?: (error: Error) => void,
+  signal?: AbortSignal
 ): Promise<void> {
   const url = `${API_BASE}${endpoint}`;
 
@@ -173,6 +174,7 @@ export async function streamAgentRequest(
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body),
+      signal,
     });
 
     if (!response.ok) {
@@ -189,6 +191,9 @@ export async function streamAgentRequest(
     let buffer = '';
 
     while (true) {
+      if (signal?.aborted) {
+        throw new Error('请求已取消');
+      }
       const { done, value } = await reader.read();
       if (done) break;
 
@@ -215,6 +220,10 @@ export async function streamAgentRequest(
     onEvent({ type: 'done' });
   } catch (error) {
     const err = error instanceof Error ? error : new Error('未知错误');
+    if (signal?.aborted) {
+      onError?.(new Error('请求已取消'));
+      return;
+    }
     onError?.(err);
     throw err;
   }

@@ -426,7 +426,10 @@ export function HybridInput({
       
       {/* 字数统计 */}
       {maxLength > 0 && (
-        <div className="flex justify-end mt-1 px-1">
+        <div className="flex items-center justify-between mt-1 px-1">
+          <span className="text-[10px] text-muted-foreground/60">
+            Enter 发送，Shift+Enter 换行，支持拖拽图片/视频
+          </span>
           <span className={cn(
             'text-[10px]',
             value.length > maxLength * 0.9 ? 'text-amber-500' : 'text-muted-foreground/50'

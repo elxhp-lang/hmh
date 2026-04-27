@@ -36,7 +36,9 @@ import {
   Save,
   Trash2,
   Play,
-  Maximize2
+  Maximize2,
+  Search,
+  Square
 } from 'lucide-react';
 
 // 新组件
@@ -323,6 +325,32 @@ interface CreativeSession {
   created_at?: string;
 }
 
+type SessionGroupKey = 'today' | 'week' | 'earlier';
+
+function groupSessionsByTime(items: CreativeSession[]) {
+  const now = Date.now();
+  const oneDay = 24 * 60 * 60 * 1000;
+  const oneWeek = 7 * oneDay;
+  const grouped: Record<SessionGroupKey, CreativeSession[]> = {
+    today: [],
+    week: [],
+    earlier: [],
+  };
+  items.forEach((session) => {
+    const ts = session.last_message_at || session.created_at;
+    const ms = ts ? new Date(ts).getTime() : 0;
+    if (!ms || Number.isNaN(ms)) {
+      grouped.earlier.push(session);
+      return;
+    }
+    const diff = now - ms;
+    if (diff <= oneDay) grouped.today.push(session);
+    else if (diff <= oneWeek) grouped.week.push(session);
+    else grouped.earlier.push(session);
+  });
+  return grouped;
+}
+
 // ========== 工具函数 ==========
 // 生成唯一的 ID，确保不会出现重复
 let idCounter = 0;
@@ -489,7 +517,9 @@ export default function CreativeAgentPageNew() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyReloadSeed, setHistoryReloadSeed] = useState(0);
+  const [sessionQuery, setSessionQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [memoryActionLoading, setMemoryActionLoading] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
   
@@ -570,6 +600,8 @@ export default function CreativeAgentPageNew() {
   const historyRequestSeq = useRef(0);
   const lastStreamUiFlushRef = useRef(0);
   const historyAbortRef = useRef<AbortController | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
+  const lastFailedUserTextRef = useRef<string | null>(null);
   const activeSessionIdRef = useRef<string | null>(null);
   
   const scrollToBottom = useCallback(() => {
@@ -583,6 +615,17 @@ export default function CreativeAgentPageNew() {
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
   }, [activeSessionId]);
+
+  const filteredSessions = sessions.filter((session) => {
+    if (!sessionQuery.trim()) return true;
+    const keyword = sessionQuery.trim().toLowerCase();
+    return (
+      (session.title || '').toLowerCase().includes(keyword) ||
+      session.id.toLowerCase().includes(keyword)
+    );
+  });
+  const groupedSessions = groupSessionsByTime(filteredSessions);
+  const lastUserMessage = [...messages].reverse().find((msg) => msg.type === 'user' && msg.content.trim());
 
   const loadSessions = useCallback(async (options?: { preferredSessionId?: string | null }) => {
     if (!token) return;
@@ -701,6 +744,13 @@ export default function CreativeAgentPageNew() {
   }, [user?.user_id, token, activeSessionId, sessionReady, historyReloadSeed]);
 
   useEffect(() => {
+    return () => {
+      streamAbortRef.current?.abort();
+      historyAbortRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!user?.user_id || !token) return;
     let mounted = true;
     const bootstrap = async () => {
@@ -751,6 +801,37 @@ export default function CreativeAgentPageNew() {
     } finally {
       setSessionLoading(false);
     }
+  };
+
+  const handleStopStreaming = () => {
+    if (!isLoading) return;
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
+    streamingMessageIdRef.current = null;
+    setIsLoading(false);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: generateId('msg'),
+        type: 'system',
+        content: '已停止当前生成。',
+        timestamp: new Date(),
+      },
+    ]);
+    setSendError(null);
+  };
+
+  const handleRetryLastUserMessage = () => {
+    if (!lastUserMessage || isLoading) return;
+    setSendError(null);
+    handleSend(lastUserMessage.content);
+  };
+
+  const handleRetryFailedMessage = () => {
+    const failedText = lastFailedUserTextRef.current;
+    if (!failedText || isLoading) return;
+    setSendError(null);
+    handleSend(failedText);
   };
 
   const handleMemoryDecision = async (
@@ -930,6 +1011,7 @@ export default function CreativeAgentPageNew() {
     
     setAttachments([]);
     setIsLoading(true);
+    setSendError(null);
     
     // 构建附件
     const apiAttachments = attachments
@@ -957,6 +1039,9 @@ export default function CreativeAgentPageNew() {
     });
     
     try {
+      streamAbortRef.current?.abort();
+      const controller = new AbortController();
+      streamAbortRef.current = controller;
       await streamAgentRequest(
         '/api/xiaohai/agent/chat',
         requestBody,
@@ -1120,14 +1205,20 @@ export default function CreativeAgentPageNew() {
               
               setIsLoading(false);
               streamingMessageIdRef.current = null;
+              streamAbortRef.current = null;
               loadSessions({ preferredSessionId: activeSessionId });
               break;
           }
         },
         (error: Error) => {
+          if (error.message === '请求已取消') {
+            setIsLoading(false);
+            return;
+          }
           addDebugLog('error', 'SSE 流错误', { message: error.message });
           setIsLoading(false);
           streamingMessageIdRef.current = null;
+          streamAbortRef.current = null;
           setMessages((prev) => [
             ...prev,
             {
@@ -1137,12 +1228,16 @@ export default function CreativeAgentPageNew() {
               timestamp: new Date(),
             },
           ]);
-        }
+        },
+        controller.signal
       );
     } catch (error) {
       console.error('发送消息失败:', error);
       setIsLoading(false);
       streamingMessageIdRef.current = null;
+      streamAbortRef.current = null;
+      lastFailedUserTextRef.current = text;
+      setSendError('发送失败，网络波动或服务超时。');
     }
   };
 
@@ -1335,6 +1430,15 @@ export default function CreativeAgentPageNew() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  value={sessionQuery}
+                  onChange={(e) => setSessionQuery(e.target.value)}
+                  placeholder="搜索会话..."
+                  className="h-8 w-[150px] rounded-md border bg-background pl-8 pr-2 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
               <Select
                 value={activeSessionId || undefined}
                 onValueChange={(value) => {
@@ -1347,11 +1451,29 @@ export default function CreativeAgentPageNew() {
                   <SelectValue placeholder="选择会话" />
                 </SelectTrigger>
                 <SelectContent>
-                  {sessions.map((session) => (
-                    <SelectItem key={session.id} value={session.id}>
-                      {session.title || session.id.slice(0, 8)}
-                    </SelectItem>
-                  ))}
+                  {filteredSessions.length === 0 && (
+                    <div className="px-2 py-2 text-xs text-muted-foreground">无匹配会话</div>
+                  )}
+                  {(['today', 'week', 'earlier'] as SessionGroupKey[]).map((key) => {
+                    const items = groupedSessions[key];
+                    if (!items.length) return null;
+                    const label = key === 'today' ? '今天' : key === 'week' ? '近 7 天' : '更早';
+                    return (
+                      <div key={key}>
+                        <div className="px-2 py-1 text-[10px] text-muted-foreground">{label}</div>
+                        {items.map((session) => (
+                          <SelectItem key={session.id} value={session.id}>
+                            <div className="flex items-center justify-between gap-3 w-full">
+                              <span className="truncate max-w-[130px]">{session.title || session.id.slice(0, 8)}</span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {session.message_count || 0}条
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </div>
+                    );
+                  })}
                 </SelectContent>
               </Select>
               <Button
@@ -1362,6 +1484,25 @@ export default function CreativeAgentPageNew() {
               >
                 {sessionLoading ? '创建中...' : '新会话'}
               </Button>
+              {isLoading && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleStopStreaming}
+                >
+                  <Square className="w-3.5 h-3.5 mr-1" />
+                  停止
+                </Button>
+              )}
+              {!isLoading && lastUserMessage && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleRetryLastUserMessage}
+                >
+                  重试上条
+                </Button>
+              )}
               <Badge variant="outline" className="text-xs">
                 <span className="w-2 h-2 rounded-full bg-green-500 mr-1" />
                 在线
@@ -1496,6 +1637,14 @@ export default function CreativeAgentPageNew() {
           
           {/* 输入区 - shrink-0 防止被压缩 */}
           <div className="shrink-0 px-6 py-4 border-t bg-background/90 backdrop-blur">
+            {sendError && (
+              <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive flex items-center justify-between gap-2">
+                <span>{sendError}</span>
+                <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={handleRetryFailedMessage}>
+                  立即重试
+                </Button>
+              </div>
+            )}
             <HybridInput
               value={inputValue}
               onChange={setInputValue}
