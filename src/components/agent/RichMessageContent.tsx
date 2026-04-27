@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useMemo } from 'react';
+import type { MessagePart } from '@/lib/agent-sse';
 
 interface RichMessageContentProps {
   content: string;
+  parts?: MessagePart[];
 }
 
 type MediaLink = {
@@ -78,7 +80,7 @@ function tryParseCodeBlock(block: string): CodeBlock | null {
   };
 }
 
-export function RichMessageContent({ content }: RichMessageContentProps) {
+export function RichMessageContent({ content, parts = [] }: RichMessageContentProps) {
   const { links, blocks } = useMemo(() => {
     const collectedLinks = collectMediaLinks(content);
     const cleaned = removeUrls(content, collectedLinks);
@@ -88,6 +90,98 @@ export function RichMessageContent({ content }: RichMessageContentProps) {
 
   return (
     <div className="space-y-3">
+      {parts.map((part, pIdx) => {
+        if (part.type === 'table') {
+          return (
+            <div key={`part_table_${pIdx}`} className="overflow-x-auto rounded-lg border bg-background/70">
+              {part.title && <div className="px-3 py-2 text-xs text-muted-foreground border-b">{part.title}</div>}
+              <table className="w-full text-sm">
+                <thead className="bg-muted/60">
+                  <tr>
+                    {part.columns.map((header, hIdx) => (
+                      <th key={`ph_${pIdx}_${hIdx}`} className="px-3 py-2 text-left font-medium whitespace-nowrap">
+                        {header}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {part.rows.map((row, rIdx) => (
+                    <tr key={`pr_${pIdx}_${rIdx}`} className="border-t">
+                      {row.map((cell, cIdx) => (
+                        <td key={`pc_${pIdx}_${rIdx}_${cIdx}`} className="px-3 py-2 align-top whitespace-pre-wrap">
+                          {cell}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+        if (part.type === 'image') {
+          return (
+            <a key={`part_img_${pIdx}`} href={part.url} target="_blank" rel="noopener noreferrer" className="block">
+              <img src={part.url} alt={part.alt || `图片预览 ${pIdx + 1}`} className="max-w-[320px] max-h-[260px] rounded-lg border object-cover" />
+            </a>
+          );
+        }
+        if (part.type === 'video') {
+          return (
+            <div key={`part_video_${pIdx}`} className="rounded-lg border overflow-hidden bg-black/80">
+              <video src={part.url} controls poster={part.poster} className="w-full max-w-[380px] max-h-[280px]" preload="metadata" />
+            </div>
+          );
+        }
+        if (part.type === 'card') {
+          const cardData = part.data || {};
+          const dataRecord = cardData as Record<string, unknown>;
+          if (part.cardType === 'video_analysis') {
+            return (
+              <div key={`part_card_${pIdx}`} className="rounded-lg border bg-background/60 px-3 py-2 text-xs space-y-1">
+                <p className="font-medium">视频分析</p>
+                <p className="text-muted-foreground">类型：{String(dataRecord.videoType ?? '-')}</p>
+                <p className="text-muted-foreground">风格：{String(dataRecord.videoStyle ?? '-')}</p>
+                <p className="text-muted-foreground">受众：{String(dataRecord.targetAudience ?? '-')}</p>
+                <p className="text-muted-foreground">基调：{String(dataRecord.emotionalTone ?? '-')}</p>
+              </div>
+            );
+          }
+          if (part.cardType === 'tool_result') {
+            return (
+              <div key={`part_card_${pIdx}`} className="rounded-lg border bg-background/60 px-3 py-2 text-xs space-y-1">
+                <p className="font-medium">工具执行结果</p>
+                <p className="text-muted-foreground">工具：{String(dataRecord.tool ?? '-')}</p>
+                <p className="text-muted-foreground">
+                  状态：{dataRecord.success ? '成功' : '失败'}
+                </p>
+                {typeof dataRecord.error === 'string' && dataRecord.error && (
+                  <p className="text-destructive/80 break-words">错误：{dataRecord.error}</p>
+                )}
+              </div>
+            );
+          }
+          if (part.cardType === 'task_submitted' || part.cardType === 'task_done') {
+            return (
+              <div key={`part_card_${pIdx}`} className="rounded-lg border bg-background/60 px-3 py-2 text-xs space-y-1">
+                <p className="font-medium">{part.cardType === 'task_done' ? '任务完成' : '任务已提交'}</p>
+                {typeof dataRecord.content === 'string' && dataRecord.content && (
+                  <p className="text-muted-foreground whitespace-pre-wrap break-words">{dataRecord.content}</p>
+                )}
+              </div>
+            );
+          }
+          return (
+            <div key={`part_card_${pIdx}`} className="rounded-lg border bg-background/60 px-3 py-2 text-xs">
+              <p className="font-medium mb-1">{part.cardType}</p>
+              <pre className="whitespace-pre-wrap break-all text-muted-foreground">{JSON.stringify(part.data, null, 2)}</pre>
+            </div>
+          );
+        }
+        return null;
+      })}
+
       {blocks.length === 0 && links.length === 0 && <p className="whitespace-pre-wrap break-words">{content}</p>}
 
       {blocks.map((block, idx) => {

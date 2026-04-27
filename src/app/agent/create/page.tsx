@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { streamAgentRequest, apiRequest } from '@/lib/api';
-import { SSEEvent, getToolResultData } from '@/lib/agent-sse';
+import { SSEEvent, MessagePart, getToolResultData } from '@/lib/agent-sse';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -179,29 +179,66 @@ function normalizeScriptOptions(input: unknown): ScriptOption[] {
     .filter((option): option is ScriptOption => !!option);
 }
 
-function extractImageAttachments(content: string): {
+function extractMediaAttachments(content: string): {
   cleanedContent: string;
   attachments: Array<{ type: string; url: string; name?: string }>;
 } {
-  const urlRegex = /(https?:\/\/[^\s)]+?\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s)]*)?)/gi;
-  const matches = Array.from(content.matchAll(urlRegex)).map((item) => item[1]).filter(Boolean);
-  if (matches.length === 0) {
+  const imageRegex = /(https?:\/\/[^\s)]+?\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s)]*)?)/gi;
+  const videoRegex = /(https?:\/\/[^\s)]+?\.(?:mp4|webm|mov|m4v)(?:\?[^\s)]*)?)/gi;
+  const imageMatches = Array.from(content.matchAll(imageRegex)).map((item) => item[1]).filter(Boolean);
+  const videoMatches = Array.from(content.matchAll(videoRegex)).map((item) => item[1]).filter(Boolean);
+  if (imageMatches.length === 0 && videoMatches.length === 0) {
     return { cleanedContent: content, attachments: [] };
   }
 
-  const uniqueUrls = Array.from(new Set(matches));
+  const uniqueImages = Array.from(new Set(imageMatches));
+  const uniqueVideos = Array.from(new Set(videoMatches));
   const cleaned = content
-    .replace(urlRegex, '')
+    .replace(imageRegex, '')
+    .replace(videoRegex, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+  const imageAttachments = uniqueImages.map((url, index) => ({
+    type: 'image',
+    url,
+    name: `图片 ${index + 1}`,
+  }));
+  const videoAttachments = uniqueVideos.map((url, index) => ({
+    type: 'video',
+    url,
+    name: `视频 ${index + 1}`,
+  }));
   return {
-    cleanedContent: cleaned || '已生成图片，见下方预览',
-    attachments: uniqueUrls.map((url, index) => ({
-      type: 'image',
-      url,
-      name: `图片 ${index + 1}`,
-    })),
+    cleanedContent: cleaned || '已生成媒体内容，见下方预览',
+    attachments: [...imageAttachments, ...videoAttachments],
   };
+}
+
+function removePartMediaUrls(content: string, parts: MessagePart[]): string {
+  if (!content || !Array.isArray(parts) || parts.length === 0) return content;
+  const mediaUrls = parts
+    .filter((part): part is Extract<MessagePart, { type: 'image' | 'video' }> => part.type === 'image' || part.type === 'video')
+    .map((part) => part.url)
+    .filter(Boolean);
+  if (mediaUrls.length === 0) return content;
+  let cleaned = content;
+  for (const url of Array.from(new Set(mediaUrls))) {
+    cleaned = cleaned.replaceAll(url, '');
+  }
+  return cleaned.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function normalizeMessageParts(input: unknown): MessagePart[] {
+  if (!Array.isArray(input)) return [];
+  return input.filter((part): part is MessagePart => {
+    if (!part || typeof part !== 'object') return false;
+    const raw = part as Record<string, unknown>;
+    if (raw.type === 'table') return Array.isArray(raw.columns) && Array.isArray(raw.rows);
+    if (raw.type === 'image' || raw.type === 'video') return typeof raw.url === 'string';
+    if (raw.type === 'card') return typeof raw.cardType === 'string' && !!raw.data && typeof raw.data === 'object';
+    if (raw.type === 'text') return typeof raw.text === 'string';
+    return false;
+  });
 }
 
 function parseScriptRows(content: string): ScriptTableRow[] {
@@ -272,6 +309,7 @@ interface Message {
   copywritingOptions?: CopywritingOption[];
   modifiedScript?: ScriptOption;
   attachments?: Array<{ type: string; url: string; name?: string }>;
+  parts?: MessagePart[];
   memoryCandidate?: MemoryCandidate;
   memoryDecision?: 'pending' | 'confirmed' | 'rejected' | 'never_ask';
 }
@@ -594,7 +632,8 @@ export default function CreativeAgentPageNew() {
                   id: `msg_${msg.id || key}`,
                   type: msg.role === 'user' ? 'user' : 'assistant',
                   content: msg.content,
-                  timestamp: new Date(msg.created_at)
+                  timestamp: new Date(msg.created_at),
+                  parts: normalizeMessageParts((msg as { parts?: unknown }).parts),
                 });
               }
             }
@@ -874,6 +913,7 @@ export default function CreativeAgentPageNew() {
     let currentText = '';
     let currentAnalysis: VideoAnalysis | undefined;
     let currentScripts: ScriptOption[] = [];
+    let currentParts: MessagePart[] = [];
     // 🔧 简化：删除 currentTask，视频生成后去视频历史页面查看
     
     const requestBody = {
@@ -900,6 +940,7 @@ export default function CreativeAgentPageNew() {
           switch (event.type) {
             case 'start':
               currentText = '';
+              currentParts = [];
               streamingMessageIdRef.current = generateId('stream');
               if (event.data && typeof event.data === 'object' && 'sessionId' in event.data) {
                 const sid = (event.data as { sessionId?: unknown }).sessionId;
@@ -923,7 +964,7 @@ export default function CreativeAgentPageNew() {
                   const exists = streamingId ? prev.some((m) => m.id === streamingId) : false;
                   if (exists && streamingId) {
                     return prev.map((msg) =>
-                      msg.id === streamingId ? { ...msg, content: currentText } : msg
+                      msg.id === streamingId ? { ...msg, content: currentText, parts: currentParts } : msg
                     );
                   } else {
                     const nextId = streamingId || generateId('stream');
@@ -932,7 +973,8 @@ export default function CreativeAgentPageNew() {
                       id: nextId,
                       type: 'assistant' as const,
                       content: currentText,
-                      timestamp: new Date()
+                      timestamp: new Date(),
+                      parts: currentParts,
                     }];
                   }
                 });
@@ -965,6 +1007,20 @@ export default function CreativeAgentPageNew() {
               const options = normalizeScriptOptions(event.data);
               if (options.length > 0) {
                 currentScripts = options;
+              }
+              break;
+            }
+
+            case 'message_part': {
+              if (event.part) {
+                currentParts = [...currentParts, event.part];
+                setMessages((prev) => {
+                  const streamingId = streamingMessageIdRef.current;
+                  if (!streamingId) return prev;
+                  return prev.map((msg) =>
+                    msg.id === streamingId ? { ...msg, parts: currentParts } : msg
+                  );
+                });
               }
               break;
             }
@@ -1006,22 +1062,30 @@ export default function CreativeAgentPageNew() {
               // 将结构化结果绑定到流式消息，避免“正文+额外卡片消息”重复堆叠
               const streamingId = streamingMessageIdRef.current;
               if (streamingId) {
-                const { cleanedContent, attachments: imageAttachments } = extractImageAttachments(currentText);
+                const hasPartMedia = currentParts.some((part) => part.type === 'image' || part.type === 'video');
+                const { cleanedContent, attachments: parsedAttachments } = hasPartMedia
+                  ? { cleanedContent: removePartMediaUrls(currentText, currentParts), attachments: [] as Array<{ type: string; url: string; name?: string }> }
+                  : extractMediaAttachments(currentText);
+                const hasScriptPart = currentParts.some((part) => part.type === 'table');
                 const hasScriptDup =
-                  currentScripts.length > 0 &&
-                  currentScripts.some((script) =>
-                    (script.content || '').trim() &&
-                    cleanedContent.includes((script.content || '').trim().slice(0, 40))
-                  );
+                  hasScriptPart ||
+                  (currentScripts.length > 0 &&
+                    currentScripts.some((script) =>
+                      (script.content || '').trim() &&
+                      cleanedContent.includes((script.content || '').trim().slice(0, 40))
+                    ));
                 setMessages((prev) =>
                   prev.map((msg) => {
                     if (msg.id !== streamingId) return msg;
+                    const hasParts = currentParts.length > 0;
                     return {
                       ...msg,
                       content: hasScriptDup ? '已生成结构化脚本，请查看下方表格。' : cleanedContent,
-                      attachments: [...(msg.attachments || []), ...imageAttachments],
-                      videoAnalysis: currentAnalysis || msg.videoAnalysis,
-                      scriptOptions: currentScripts.length > 0 ? currentScripts : msg.scriptOptions,
+                      attachments: [...(msg.attachments || []), ...parsedAttachments],
+                      // V1.4: parts 为主，旧字段仅保留为历史兜底
+                      videoAnalysis: hasParts ? msg.videoAnalysis : (currentAnalysis || msg.videoAnalysis),
+                      scriptOptions: hasParts ? msg.scriptOptions : (currentScripts.length > 0 ? currentScripts : msg.scriptOptions),
+                      parts: hasParts ? currentParts : msg.parts,
                     };
                   })
                 );
@@ -1291,6 +1355,7 @@ export default function CreativeAgentPageNew() {
                     type: m.type,
                     content: m.content,
                     timestamp: m.timestamp,
+                    parts: m.parts,
                     attachments: m.attachments?.map(a => ({
                       type: a.type as 'video' | 'image' | 'link',
                       url: a.url,
@@ -1300,15 +1365,15 @@ export default function CreativeAgentPageNew() {
                   }))}
                 />
                 
-                {/* 显示分析卡片 */}
-                {messages.map(m => m.videoAnalysis && (
+                {/* 兼容旧消息：仅当没有 parts 时显示旧分析卡片 */}
+                {messages.map(m => m.videoAnalysis && (!m.parts || m.parts.length === 0) && (
                   <div key={`analysis-${m.id}`} className="mt-4">
                     <AnalysisCard analysis={m.videoAnalysis} />
                   </div>
                 ))}
                 
-                {/* 显示脚本预览 */}
-                {messages.map(m => m.scriptOptions && (
+                {/* 兼容旧消息：仅当没有 parts 时显示旧脚本预览 */}
+                {messages.map(m => m.scriptOptions && (!m.parts || m.parts.length === 0) && (
                   <div key={`scripts-${m.id}`} className="mt-4 space-y-3">
                     {m.scriptOptions.map(script => (
                       <ScriptPreviewCard key={script.id} script={script} />

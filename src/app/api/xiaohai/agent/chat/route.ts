@@ -7,7 +7,7 @@
  * POST /api/xiaohai/agent/chat
  * 
  * 响应格式：
- * - type: "text" | "video_analysis" | "script_options" | "task" | "done" | "error"
+ * - type: "text" | "video_analysis" | "script_options" | "message_part" | "task" | "done" | "error"
  * - content: 文本描述
  * - data: 结构化数据
  */
@@ -19,7 +19,7 @@ import { AgentToolsService } from '@/lib/agent-tools-service';
 import { getXiaohaiSystemPromptV3 } from '@/lib/xiaohai-system-prompt-v3';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { createSSEWriter, getBearerToken, ok } from '@/lib/server/api-kit';
-import { normalizeToolExecutionResult } from '@/lib/agent-sse';
+import { MessagePart, normalizeToolExecutionResult } from '@/lib/agent-sse';
 
 const client = new LLMClient(new Config());
 const toolsService = new AgentToolsService();
@@ -55,16 +55,18 @@ async function saveConversationMessage(
   userId: string,
   sessionId: string,
   role: 'user' | 'assistant',
-  content: string
-): Promise<void> {
+  content: string,
+  parts?: MessagePart[]
+): Promise<string | null> {
   try {
     const supabase = getSupabaseClient();
-    await supabase.from('agent_conversation_messages').insert({
+    const { data: inserted } = await supabase.from('agent_conversation_messages').insert({
       user_id: userId,
       session_id: sessionId,
       role: role,
-      content: content
-    });
+      content: content,
+      parts: Array.isArray(parts) && parts.length > 0 ? parts : null,
+    }).select('id').single();
     const now = new Date().toISOString();
     const { data: session } = await supabase
       .from('agent_sessions')
@@ -83,8 +85,29 @@ async function saveConversationMessage(
       .eq('id', sessionId)
       .eq('user_id', userId);
     console.log(`💾 [笔记本1号] 已保存 ${role} 消息`);
+    return (inserted as { id?: string } | null)?.id || null;
   } catch (error) {
     console.error('❌ [笔记本1号] 保存消息失败:', error);
+    return null;
+  }
+}
+
+async function updateConversationMessageParts(
+  messageId: string,
+  userId: string,
+  parts: MessagePart[]
+): Promise<void> {
+  if (!messageId || !Array.isArray(parts) || parts.length === 0) return;
+  try {
+    const supabase = getSupabaseClient();
+    await supabase
+      .from('agent_conversation_messages')
+      .update({ parts })
+      .eq('id', messageId)
+      .eq('user_id', userId)
+      .eq('role', 'assistant');
+  } catch (error) {
+    console.error('❌ [笔记本1号] 回写消息 parts 失败:', error);
   }
 }
 
@@ -260,6 +283,97 @@ function tryExtractScriptOptions(content: string): ExtractedScriptOption[] | nul
   });
 
   return options.length > 0 ? options : null;
+}
+
+function buildScriptTablePart(
+  scripts: ExtractedScriptOption[]
+): { type: 'table'; title: string; columns: string[]; rows: string[][] } | null {
+  if (!Array.isArray(scripts) || scripts.length === 0) return null;
+  const rows = scripts.slice(0, 12).map((item) => [
+    item.title || '脚本方案',
+    item.description || '',
+    (item.content || '').slice(0, 220),
+  ]);
+  return {
+    type: 'table',
+    title: '脚本候选方案',
+    columns: ['方案', '说明', '内容预览'],
+    rows,
+  };
+}
+
+function buildScriptTablePartFromUnknown(
+  input: unknown
+): { type: 'table'; title: string; columns: string[]; rows: string[][] } | null {
+  if (!Array.isArray(input) || input.length === 0) return null;
+  const normalized: ExtractedScriptOption[] = input
+    .map((item, index) => {
+      if (!item || typeof item !== 'object') return null;
+      const raw = item as Record<string, unknown>;
+      return {
+        id: typeof raw.id === 'string' ? raw.id : `script_${index + 1}`,
+        title: typeof raw.title === 'string' ? raw.title : `脚本方案 ${index + 1}`,
+        description: typeof raw.description === 'string' ? raw.description : '',
+        content: typeof raw.content === 'string' ? raw.content : '',
+      } as ExtractedScriptOption;
+    })
+    .filter((item): item is ExtractedScriptOption => !!item);
+  return buildScriptTablePart(normalized);
+}
+
+function extractMediaPartsFromText(content: string): Array<{ type: 'image' | 'video'; url: string; alt?: string }> {
+  if (!content) return [];
+  const imageRegex = /(https?:\/\/[^\s)]+?\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s)]*)?)/gi;
+  const videoRegex = /(https?:\/\/[^\s)]+?\.(?:mp4|webm|mov|m4v)(?:\?[^\s)]*)?)/gi;
+  const imageUrls = Array.from(content.matchAll(imageRegex)).map((m) => m[1]).filter(Boolean);
+  const videoUrls = Array.from(content.matchAll(videoRegex)).map((m) => m[1]).filter(Boolean);
+
+  const parts: Array<{ type: 'image' | 'video'; url: string; alt?: string }> = [];
+  for (const [index, url] of Array.from(new Set(imageUrls)).entries()) {
+    parts.push({ type: 'image', url, alt: `图片 ${index + 1}` });
+  }
+  for (const [index, url] of Array.from(new Set(videoUrls)).entries()) {
+    parts.push({ type: 'video', url, alt: `视频 ${index + 1}` });
+  }
+  return parts;
+}
+
+function buildToolResultCardPart(
+  toolName: string,
+  result: { success?: boolean; data?: unknown; error?: unknown }
+): { type: 'card'; cardType: string; data: Record<string, unknown> } {
+  return {
+    type: 'card',
+    cardType: 'tool_result',
+    data: {
+      tool: toolName,
+      success: !!result.success,
+      error: typeof result.error === 'string' ? result.error : undefined,
+      data: result.data ?? null,
+    },
+  };
+}
+
+function buildStructuredCardPart(parsed: any): { type: 'card'; cardType: string; data: Record<string, unknown> } | null {
+  if (!parsed || typeof parsed !== 'object' || typeof parsed.type !== 'string') return null;
+  if (parsed.type === 'video_analysis') {
+    return {
+      type: 'card',
+      cardType: 'video_analysis',
+      data: typeof parsed.data === 'object' && parsed.data ? parsed.data : { content: parsed.content || '' },
+    };
+  }
+  if (parsed.type === 'task_submitted' || parsed.type === 'task_done') {
+    return {
+      type: 'card',
+      cardType: parsed.type,
+      data: {
+        ...(typeof parsed.data === 'object' && parsed.data ? parsed.data : {}),
+        content: typeof parsed.content === 'string' ? parsed.content : '',
+      },
+    };
+  }
+  return null;
 }
 
 /**
@@ -488,9 +602,19 @@ export async function POST(request: NextRequest) {
             }
 
             // ========== 笔记本1号：保存AI回复 ==========
-            if (userId) {
-              await saveConversationMessage(userId, session!.id, 'assistant', assistantMessage);
-            }
+            const assistantMessageId = userId
+              ? await saveConversationMessage(userId, session!.id, 'assistant', assistantMessage)
+              : null;
+            const iterationParts: MessagePart[] = [];
+            const emitPart = (part: MessagePart, source: string) => {
+              iterationParts.push(part);
+              sendEvent({ type: 'message_part', part, data: { source } });
+            };
+            const persistAssistantParts = async () => {
+              if (assistantMessageId && userId && iterationParts.length > 0) {
+                await updateConversationMessageParts(assistantMessageId, userId, iterationParts);
+              }
+            };
 
             // ========== LLM 响应日志 ==========
             console.log('📤 [Agent] LLM 原始响应:', assistantMessage.substring(0, 1500));
@@ -521,6 +645,10 @@ export async function POST(request: NextRequest) {
 
             if (!parsed) {
               // 纯文本回复
+              const mediaParts = extractMediaPartsFromText(assistantMessage);
+              for (const part of mediaParts) {
+                emitPart(part, 'url_extractor');
+              }
               sendEvent({ type: 'text', content: assistantMessage });
               const memoryCandidate = extractMemoryCandidate(userMessageContent);
               if (memoryCandidate) {
@@ -529,6 +657,10 @@ export async function POST(request: NextRequest) {
 
               const extractedScripts = tryExtractScriptOptions(assistantMessage);
               if (extractedScripts) {
+                const scriptTablePart = buildScriptTablePart(extractedScripts);
+                if (scriptTablePart) {
+                  emitPart(scriptTablePart, 'text_extractor');
+                }
                 sendEvent({
                   type: 'script_options',
                   content: '识别到脚本内容，已结构化展示',
@@ -536,6 +668,7 @@ export async function POST(request: NextRequest) {
                   source: 'text_extractor'
                 });
               }
+              await persistAssistantParts();
               controller.close(); // 🔧 修复：必须关闭流，前端才能收到 done 事件
               break;
             }
@@ -632,6 +765,7 @@ export async function POST(request: NextRequest) {
 
                 // 发送结果
                 sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(result) });
+                emitPart(buildToolResultCardPart(toolName, result), 'tool_result');
 
                 // 添加反馈
                 messages.push({
@@ -641,42 +775,63 @@ export async function POST(request: NextRequest) {
               } catch (toolError) {
                 const errorResult = { error: toolError instanceof Error ? toolError.message : '工具执行失败' };
                 sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(errorResult) });
+                emitPart(buildToolResultCardPart(toolName, errorResult), 'tool_result');
                 
                 messages.push({
                   role: 'user',
                   content: `[工具调用结果]\n工具: ${toolName}\n结果: ${JSON.stringify(errorResult)}`
                 });
               }
-              
+              await persistAssistantParts();
               continue;
             }
 
             // 结构化响应（video_analysis, script_options, task 等）
             if (['video_analysis', 'script_options', 'task_submitted', 'task_done', 'error'].includes(parsed.type)) {
+              if (parsed.type === 'script_options') {
+                const scriptTablePart = buildScriptTablePartFromUnknown(parsed.data);
+                if (scriptTablePart) {
+                  emitPart(scriptTablePart, 'structured_script_options');
+                }
+              }
+              const structuredCard = buildStructuredCardPart(parsed);
+              if (structuredCard) {
+                emitPart(structuredCard, 'structured_response');
+              }
               sendEvent(parsed);
               
               // 如果是 done 或 error，结束对话
               if (parsed.type === 'task_done' || parsed.type === 'error') {
+                await persistAssistantParts();
                 controller.close(); // 🔧 修复：必须关闭流
                 break;
               }
+              await persistAssistantParts();
               continue;
             }
 
             // 纯文本回复
             if (parsed.type === 'text' || parsed.content) {
+              const textContent = parsed.content || assistantMessage;
+              const mediaParts = extractMediaPartsFromText(textContent);
+              for (const part of mediaParts) {
+                emitPart(part, 'url_extractor');
+              }
               sendEvent({ type: 'text', content: parsed.content || assistantMessage });
               
               // 检查是否应该结束
               if (iterations >= 3 && parsed.type === 'text') {
+                await persistAssistantParts();
                 controller.close(); // 🔧 修复：必须关闭流
                 break;
               }
+              await persistAssistantParts();
               continue;
             }
 
             // 未知格式，发送原始文本
             sendEvent({ type: 'text', content: assistantMessage });
+            await persistAssistantParts();
             controller.close(); // 🔧 修复：必须关闭流
             break;
           }

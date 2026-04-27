@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { RichMessageContent } from '@/components/agent/RichMessageContent';
+import type { MessagePart } from '@/lib/agent-sse';
 import { 
   Bot, 
   User, 
@@ -31,6 +32,7 @@ export interface MessageBubbleProps {
   content: string;
   timestamp: Date;
   attachments?: BubbleAttachment[];
+  parts?: MessagePart[];
   isStreaming?: boolean;
   showAvatar?: boolean;
 }
@@ -43,6 +45,7 @@ export function MessageBubble({
   content,
   timestamp,
   attachments = [],
+  parts = [],
   isStreaming = false,
   showAvatar = true
 }: MessageBubbleProps) {
@@ -124,7 +127,7 @@ export function MessageBubble({
           )}
           
           {/* 消息文本 */}
-          <RichMessageContent content={content} />
+          <RichMessageContent content={content} parts={parts} />
           
           {/* 流式加载指示器 */}
           {isStreaming && (

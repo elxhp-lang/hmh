@@ -436,6 +436,7 @@ export const agentConversationMessages = pgTable(
     session_id: varchar("session_id", { length: 36 }).references(() => agentSessions.id, { onDelete: "set null" }),
     role: varchar("role", { length: 20 }).notNull(), // user/assistant
     content: text("content").notNull(),
+    parts: jsonb("parts"), // 富内容结构化片段（可选）
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
