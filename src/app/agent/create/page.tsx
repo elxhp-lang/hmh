@@ -352,6 +352,17 @@ function groupSessionsByTime(items: CreativeSession[]) {
   return grouped;
 }
 
+function isRenderablePreviewUrl(url: string): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === 'seedance-public.oss-cn-beijing.aliyuncs.com') return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ========== 工具函数 ==========
 // 生成唯一的 ID，确保不会出现重复
 let idCounter = 0;
@@ -1072,8 +1083,18 @@ export default function CreativeAgentPageNew() {
         const previewMessages = items
           .map((item, idx) => {
             const result = item?.output_data?.result || {};
-            const imageUrl = typeof result.image_url === 'string' ? result.image_url : '';
-            const videoUrl = typeof result.public_video_url === 'string' ? result.public_video_url : (typeof result.video_url === 'string' ? result.video_url : '');
+            const imageCandidates = [
+              typeof result.image_url === 'string' ? result.image_url : '',
+              typeof result.preview_image_url === 'string' ? result.preview_image_url : '',
+              typeof result.public_image_url === 'string' ? result.public_image_url : '',
+            ].filter(Boolean);
+            const videoCandidates = [
+              typeof result.public_video_url === 'string' ? result.public_video_url : '',
+              typeof result.video_url === 'string' ? result.video_url : '',
+              typeof result.preview_video_url === 'string' ? result.preview_video_url : '',
+            ].filter(Boolean);
+            const imageUrl = imageCandidates.find((u) => isRenderablePreviewUrl(u)) || '';
+            const videoUrl = videoCandidates.find((u) => isRenderablePreviewUrl(u)) || '';
             const parts: MessagePart[] = [];
             if (imageUrl) {
               parts.push({ type: 'image', url: imageUrl, alt: `任务预览图 ${idx + 1}` });

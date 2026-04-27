@@ -2,6 +2,19 @@ import { NextRequest } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { fail, ok, requireAuth } from '@/lib/server/api-kit';
 
+function isRenderableMediaUrl(url: string | null | undefined): url is string {
+  if (!url || typeof url !== 'string') return false;
+  try {
+    const parsed = new URL(url);
+    const blockedHosts = new Set([
+      'seedance-public.oss-cn-beijing.aliyuncs.com',
+    ]);
+    return !blockedHosts.has(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { taskId: string } }
@@ -55,11 +68,18 @@ export async function GET(
           if (!raw || typeof raw !== 'object') return null;
           const data = raw as Record<string, unknown>;
           const result = (data.result && typeof data.result === 'object') ? (data.result as Record<string, unknown>) : data;
-          const imageUrl = typeof result.image_url === 'string' ? result.image_url : null;
-          const videoUrl =
-            typeof result.public_video_url === 'string'
-              ? result.public_video_url
-              : (typeof result.video_url === 'string' ? result.video_url : null);
+          const imageCandidates = [
+            typeof result.image_url === 'string' ? result.image_url : null,
+            typeof result.preview_image_url === 'string' ? result.preview_image_url : null,
+            typeof result.public_image_url === 'string' ? result.public_image_url : null,
+          ];
+          const videoCandidates = [
+            typeof result.public_video_url === 'string' ? result.public_video_url : null,
+            typeof result.video_url === 'string' ? result.video_url : null,
+            typeof result.preview_video_url === 'string' ? result.preview_video_url : null,
+          ];
+          const imageUrl = imageCandidates.find((u) => isRenderableMediaUrl(u)) || null;
+          const videoUrl = videoCandidates.find((u) => isRenderableMediaUrl(u)) || null;
           const parts: Array<Record<string, unknown>> = [];
           if (imageUrl) parts.push({ type: 'image', url: imageUrl, alt: '任务预览图' });
           if (videoUrl) parts.push({ type: 'video', url: videoUrl });
