@@ -10,6 +10,8 @@ export type SSEEventType =
   | 'task'
   | 'task_done'
   | 'copywriting_options'
+  | 'memory_candidate'
+  | 'memory_saved'
   | 'error'
   | 'done';
 

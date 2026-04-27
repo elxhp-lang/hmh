@@ -65,35 +65,30 @@ async function saveConversationMessage(
       role: role,
       content: content
     });
+    const now = new Date().toISOString();
+    const { data: session } = await supabase
+      .from('agent_sessions')
+      .select('message_count')
+      .eq('id', sessionId)
+      .eq('user_id', userId)
+      .single();
+    const nextCount = (session?.message_count || 0) + 1;
+    await supabase
+      .from('agent_sessions')
+      .update({
+        last_message_at: now,
+        message_count: nextCount,
+      })
+      .eq('id', sessionId)
+      .eq('user_id', userId);
     console.log(`💾 [笔记本1号] 已保存 ${role} 消息`);
   } catch (error) {
     console.error('❌ [笔记本1号] 保存消息失败:', error);
   }
 }
 
-async function ensureCreativeSession(userId: string, preferredSessionId?: string | null) {
+async function createCreativeSession(userId: string) {
   const supabase = getSupabaseClient();
-  if (preferredSessionId) {
-    const { data: existing } = await supabase
-      .from('agent_sessions')
-      .select('id,user_id,agent_type,status,title,message_count')
-      .eq('id', preferredSessionId)
-      .eq('user_id', userId)
-      .eq('agent_type', 'creative')
-      .single();
-    if (existing) return existing as any;
-  }
-
-  const { data: latest } = await supabase
-    .from('agent_sessions')
-    .select('id,user_id,agent_type,status,title,message_count,last_message_at,created_at')
-    .eq('user_id', userId)
-    .eq('agent_type', 'creative')
-    .eq('status', 'active')
-    .order('last_message_at', { ascending: false })
-    .limit(1);
-  if (latest && latest.length > 0) return latest[0] as any;
-
   const { data: created, error } = await supabase
     .from('agent_sessions')
     .insert({
@@ -112,6 +107,21 @@ async function ensureCreativeSession(userId: string, preferredSessionId?: string
   return created as any;
 }
 
+async function ensureCreativeSession(userId: string, preferredSessionId?: string | null) {
+  const supabase = getSupabaseClient();
+  if (preferredSessionId) {
+    const { data: existing } = await supabase
+      .from('agent_sessions')
+      .select('id,user_id,agent_type,status,title,message_count')
+      .eq('id', preferredSessionId)
+      .eq('user_id', userId)
+      .eq('agent_type', 'creative')
+      .single();
+    if (existing) return existing as any;
+  }
+  return createCreativeSession(userId);
+}
+
 // ========== 动态系统提示词 ==========
 
 async function getAgentSystemPrompt(): Promise<string> {
@@ -125,12 +135,83 @@ async function getAgentSystemPrompt(): Promise<string> {
 }
 
 const MAX_ITERATIONS = 15;
+const MAX_TOOL_STRING_LEN = 2000;
+const HIGH_RISK_TOOLS = new Set(['delete_material', 'clear_session', 'update_material']);
+const TOOL_REQUIRED_FIELDS: Record<string, string[]> = {
+  submit_video_task: ['prompt'],
+  generate_script: ['product_name'],
+  analyze_video: ['video_url'],
+  webSearch: ['query'],
+};
 
 interface ExtractedScriptOption {
   id: string;
   title: string;
   description: string;
   content: string;
+}
+
+interface MemoryCandidate {
+  id: string;
+  memoryType: 'general' | 'preference' | 'rule' | 'experience' | 'document';
+  content: string;
+  question: string;
+  keywords: string[];
+}
+
+function sanitizeToolParams(input: unknown): Record<string, any> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+  const source = input as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value === 'string') {
+      out[key] = value.slice(0, MAX_TOOL_STRING_LEN);
+    } else if (Array.isArray(value)) {
+      out[key] = value.slice(0, 20);
+    } else if (value && typeof value === 'object') {
+      out[key] = sanitizeToolParams(value);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out as Record<string, any>;
+}
+
+function validateToolCall(toolName: string, params: Record<string, any>): string | null {
+  if (HIGH_RISK_TOOLS.has(toolName) && !params?.confirmed_by_user) {
+    return `工具 ${toolName} 需要用户确认，请先征得用户同意并传入 confirmed_by_user=true`;
+  }
+  const requiredFields = TOOL_REQUIRED_FIELDS[toolName];
+  if (!requiredFields) return null;
+  for (const field of requiredFields) {
+    if (!params?.[field] || (typeof params[field] === 'string' && !params[field].trim())) {
+      return `工具 ${toolName} 缺少必要参数: ${field}`;
+    }
+  }
+  return null;
+}
+
+function extractMemoryCandidate(userMessageContent: string): MemoryCandidate | null {
+  const message = userMessageContent.trim();
+  if (!message || message.length < 6) return null;
+  const preferencePattern = /(我喜欢|我常用|以后默认|请记住|记一下|不要再|一直用)/;
+  if (!preferencePattern.test(message)) return null;
+  const memoryType: MemoryCandidate['memoryType'] = /(不要|禁用|必须|务必)/.test(message)
+    ? 'rule'
+    : 'preference';
+  const keywords = message
+    .replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, ' ')
+    .split(/\s+/)
+    .filter((word) => word.length > 1)
+    .slice(0, 8);
+
+  return {
+    id: `mem_${Date.now()}`,
+    memoryType,
+    content: message.slice(0, 300),
+    question: '这条偏好/规则要帮你记住，后续默认沿用吗？',
+    keywords,
+  };
 }
 
 function splitScriptSections(content: string): string[] {
@@ -419,6 +500,10 @@ export async function POST(request: NextRequest) {
             if (!parsed) {
               // 纯文本回复
               sendEvent({ type: 'text', content: assistantMessage });
+              const memoryCandidate = extractMemoryCandidate(userMessageContent);
+              if (memoryCandidate) {
+                sendEvent({ type: 'memory_candidate', data: memoryCandidate });
+              }
 
               const extractedScripts = tryExtractScriptOptions(assistantMessage);
               if (extractedScripts) {
@@ -478,7 +563,7 @@ export async function POST(request: NextRequest) {
               // 处理第一个工具调用
               const toolCall = toolCalls[0];
               const toolName = toolCall.name;
-              const toolParams = toolCall.params;
+              const toolParams = sanitizeToolParams(toolCall.params);
               const thought = toolCall.thought || '';
 
               console.log(`🛠️ [Agent] 调用工具: ${toolName}`);
@@ -492,6 +577,17 @@ export async function POST(request: NextRequest) {
                 const errorResult = { error: `未知工具: ${toolName}` };
                 sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(errorResult) });
                 
+                messages.push({
+                  role: 'user',
+                  content: `[工具调用结果]\n工具: ${toolName}\n结果: ${JSON.stringify(errorResult)}`
+                });
+                continue;
+              }
+
+              const guardrailError = validateToolCall(toolName, toolParams);
+              if (guardrailError) {
+                const errorResult = { success: false, error: guardrailError, data: null };
+                sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(errorResult) });
                 messages.push({
                   role: 'user',
                   content: `[工具调用结果]\n工具: ${toolName}\n结果: ${JSON.stringify(errorResult)}`
@@ -627,10 +723,17 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const listSessions = searchParams.get('listSessions') === '1';
+    const createSession = searchParams.get('createSession') === '1';
     const sessionId = searchParams.get('sessionId');
 
+    const supabase = getSupabaseClient();
+
+    if (createSession) {
+      const session = await createCreativeSession(userId);
+      return ok({ data: { session } });
+    }
+
     if (listSessions) {
-      const supabase = getSupabaseClient();
       const { data: sessions } = await supabase
         .from('agent_sessions')
         .select('id,title,status,message_count,last_message_at,created_at')
@@ -641,18 +744,23 @@ export async function GET(request: NextRequest) {
       return ok({ data: { sessions: sessions || [] } });
     }
 
-    // 2. 查询对话历史（最近24小时，正序）
-    const supabase = getSupabaseClient();
+    // 2. 查询对话历史（按 session 严格匹配）
+    if (!sessionId) {
+      return ok({
+        data: {
+          conversationHistory: [],
+          userPreferences: [],
+          sessionId: null,
+        }
+      });
+    }
+
     let historyQuery = supabase
       .from('agent_conversation_messages')
       .select('*')
       .eq('user_id', userId)
+      .eq('session_id', sessionId)
       .order('created_at', { ascending: true });
-    if (sessionId) {
-      historyQuery = historyQuery.eq('session_id', sessionId);
-    } else {
-      historyQuery = historyQuery.gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
-    }
     const { data: historyData } = await historyQuery;
 
     // 3. 查询用户偏好

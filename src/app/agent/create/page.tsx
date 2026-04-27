@@ -146,6 +146,12 @@ interface ScriptOption {
   content?: string;
 }
 
+interface ScriptTableRow {
+  lens: string;
+  visual: string;
+  narration: string;
+}
+
 function normalizeScriptOptions(input: unknown): ScriptOption[] {
   if (!Array.isArray(input)) return [];
   return input
@@ -173,12 +179,85 @@ function normalizeScriptOptions(input: unknown): ScriptOption[] {
     .filter((option): option is ScriptOption => !!option);
 }
 
+function extractImageAttachments(content: string): {
+  cleanedContent: string;
+  attachments: Array<{ type: string; url: string; name?: string }>;
+} {
+  const urlRegex = /(https?:\/\/[^\s)]+?\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s)]*)?)/gi;
+  const matches = Array.from(content.matchAll(urlRegex)).map((item) => item[1]).filter(Boolean);
+  if (matches.length === 0) {
+    return { cleanedContent: content, attachments: [] };
+  }
+
+  const uniqueUrls = Array.from(new Set(matches));
+  const cleaned = content
+    .replace(urlRegex, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return {
+    cleanedContent: cleaned || '已生成图片，见下方预览',
+    attachments: uniqueUrls.map((url, index) => ({
+      type: 'image',
+      url,
+      name: `图片 ${index + 1}`,
+    })),
+  };
+}
+
+function parseScriptRows(content: string): ScriptTableRow[] {
+  const lines = content
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const rows: ScriptTableRow[] = [];
+
+  const numberedPattern = /^\d+[\.、\s]/;
+  for (const line of lines) {
+    if (!numberedPattern.test(line) && !/镜头|画面|旁白|台词|字幕/.test(line)) continue;
+    const normalized = line.replace(numberedPattern, '').trim();
+    const segments = normalized
+      .split(/[|｜]/)
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+
+    if (segments.length >= 3) {
+      rows.push({
+        lens: segments[0] || '-',
+        visual: segments[1] || '-',
+        narration: segments.slice(2).join(' | ') || '-',
+      });
+      continue;
+    }
+
+    const lensMatch = normalized.match(/(?:镜头|景别)[:：]\s*([^，。；;]+)/);
+    const visualMatch = normalized.match(/(?:画面|动作)[:：]\s*([^，。；;]+)/);
+    const narrationMatch = normalized.match(/(?:台词|旁白|字幕|对白)[:：]\s*(.+)$/);
+    if (lensMatch || visualMatch || narrationMatch) {
+      rows.push({
+        lens: lensMatch?.[1]?.trim() || '-',
+        visual: visualMatch?.[1]?.trim() || '-',
+        narration: narrationMatch?.[1]?.trim() || '-',
+      });
+    }
+  }
+
+  return rows.slice(0, 12);
+}
+
 // 🔧 简化：删除 VideoTask 接口，视频生成后去视频历史页面查看
 
 interface CopywritingOption {
   style_name: string;
   content: string;
   tags: string[];
+}
+
+interface MemoryCandidate {
+  id: string;
+  memoryType: 'general' | 'preference' | 'rule' | 'experience' | 'document';
+  content: string;
+  question: string;
+  keywords: string[];
 }
 
 interface Message {
@@ -193,6 +272,8 @@ interface Message {
   copywritingOptions?: CopywritingOption[];
   modifiedScript?: ScriptOption;
   attachments?: Array<{ type: string; url: string; name?: string }>;
+  memoryCandidate?: MemoryCandidate;
+  memoryDecision?: 'pending' | 'confirmed' | 'rejected' | 'never_ask';
 }
 
 interface CreativeSession {
@@ -314,17 +395,41 @@ function AnalysisCard({ analysis }: { analysis: VideoAnalysis }) {
 // ========== 脚本预览卡片 ==========
 
 function ScriptPreviewCard({ script }: { script: ScriptOption }) {
+  const rows = parseScriptRows(script.content || script.description || '');
   return (
     <Card className="bg-card">
       <CardHeader className="pb-2">
         <CardTitle className="text-lg">{script.title}</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="prose prose-sm dark:prose-invert max-w-none">
-          <pre className="whitespace-pre-wrap text-sm bg-muted/50 rounded-lg p-4">
-            {script.content || script.description}
-          </pre>
-        </div>
+        {rows.length > 0 ? (
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium w-24">镜头</th>
+                  <th className="px-3 py-2 text-left font-medium">画面内容</th>
+                  <th className="px-3 py-2 text-left font-medium">台词/旁白</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, idx) => (
+                  <tr key={`${script.id}_${idx}`} className="border-t">
+                    <td className="px-3 py-2 align-top text-muted-foreground">{row.lens}</td>
+                    <td className="px-3 py-2 align-top">{row.visual}</td>
+                    <td className="px-3 py-2 align-top">{row.narration}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="prose prose-sm dark:prose-invert max-w-none">
+            <pre className="whitespace-pre-wrap text-sm bg-muted/50 rounded-lg p-4">
+              {script.content || script.description}
+            </pre>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -341,7 +446,10 @@ export default function CreativeAgentPageNew() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessions, setSessions] = useState<CreativeSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [sessionLoading, setSessionLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [memoryActionLoading, setMemoryActionLoading] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
   
   // ========== 调试日志系统 ==========
@@ -418,6 +526,7 @@ export default function CreativeAgentPageNew() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const conversationHistory = useRef<Array<{ role: string; content: string }>>([]);
   const streamingMessageIdRef = useRef<string | null>(null);
+  const historyRequestSeq = useRef(0);
   
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -427,7 +536,7 @@ export default function CreativeAgentPageNew() {
     setIsClient(true);
   }, []);
 
-  const loadSessions = useCallback(async () => {
+  const loadSessions = useCallback(async (options?: { preferredSessionId?: string | null }) => {
     if (!token) return;
     try {
       const res = await fetch('/api/xiaohai/agent/chat?listSessions=1', {
@@ -437,6 +546,11 @@ export default function CreativeAgentPageNew() {
       const data = await res.json();
       const nextSessions = (data?.data?.sessions || []) as CreativeSession[];
       setSessions(nextSessions);
+      const preferredSessionId = options?.preferredSessionId || null;
+      if (preferredSessionId && nextSessions.some((session) => session.id === preferredSessionId)) {
+        setActiveSessionId(preferredSessionId);
+        return;
+      }
       if (!activeSessionId && nextSessions.length > 0) {
         setActiveSessionId(nextSessions[0].id);
       }
@@ -447,18 +561,20 @@ export default function CreativeAgentPageNew() {
 
   // ========== 双笔记本系统：加载历史消息 ==========
   useEffect(() => {
-    if (!user?.user_id || !token) return;
+    if (!user?.user_id || !token || !activeSessionId || !sessionReady) return;
     
     const fetchHistory = async () => {
+      const requestId = ++historyRequestSeq.current;
       try {
-        addDebugLog('api', '加载对话历史开始', { userId: user.user_id });
-        const qs = activeSessionId ? `?sessionId=${activeSessionId}` : '';
+        addDebugLog('api', '加载对话历史开始', { userId: user.user_id, activeSessionId });
+        const qs = `?sessionId=${activeSessionId}`;
         const historyRes = await fetch(`/api/xiaohai/agent/chat${qs}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         
         if (historyRes.ok) {
           const historyData = await historyRes.json();
+          if (requestId !== historyRequestSeq.current) return;
           if (historyData.success && historyData.data?.conversationHistory) {
             const msgCount = historyData.data.conversationHistory.length;
             addDebugLog('api', '加载对话历史成功', { count: msgCount });
@@ -502,9 +618,6 @@ export default function CreativeAgentPageNew() {
             // 更新 messages 状态
             setMessages(historyMessages);
             addDebugLog('state', '更新 messages 状态', { count: historyMessages.length });
-            if (!activeSessionId && historyData.data?.sessionId) {
-              setActiveSessionId(historyData.data.sessionId);
-            }
           } else {
             addDebugLog('api', '加载对话历史失败：无数据', historyData);
           }
@@ -522,8 +635,89 @@ export default function CreativeAgentPageNew() {
 
   useEffect(() => {
     if (!user?.user_id || !token) return;
-    loadSessions();
+    let mounted = true;
+    const bootstrap = async () => {
+      setSessionLoading(true);
+      const res = await fetch('/api/xiaohai/agent/chat?listSessions=1', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!mounted) return;
+      if (!res.ok) {
+        setSessionLoading(false);
+        return;
+      }
+      const data = await res.json();
+      const nextSessions = (data?.data?.sessions || []) as CreativeSession[];
+      setSessions(nextSessions);
+      if (nextSessions.length > 0) {
+        setActiveSessionId(nextSessions[0].id);
+      } else {
+        setActiveSessionId(null);
+      }
+      setSessionReady(true);
+      setSessionLoading(false);
+    };
+    bootstrap();
+    return () => {
+      mounted = false;
+    };
   }, [user?.user_id, token, loadSessions]);
+
+  const handleCreateSession = async () => {
+    if (!token || isLoading || sessionLoading) return;
+    setSessionLoading(true);
+    try {
+      const res = await fetch('/api/xiaohai/agent/chat?createSession=1', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const newSession = data?.data?.session as CreativeSession | undefined;
+      if (!newSession) return;
+      setSessions((prev) => [newSession, ...prev.filter((item) => item.id !== newSession.id)]);
+      setActiveSessionId(newSession.id);
+      setMessages([]);
+      conversationHistory.current = [];
+      setSessionReady(true);
+    } catch (error) {
+      console.error('创建新会话失败:', error);
+    } finally {
+      setSessionLoading(false);
+    }
+  };
+
+  const handleMemoryDecision = async (
+    messageId: string,
+    action: 'confirm' | 'reject' | 'never_ask',
+    candidate?: MemoryCandidate
+  ) => {
+    if (!token || !candidate) return;
+    setMemoryActionLoading(messageId);
+    try {
+      const response = await fetch('/api/xiaohai/agent/memory/confirm', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          action,
+          candidateId: candidate.id,
+          memoryType: candidate.memoryType,
+          content: candidate.content,
+          keywords: candidate.keywords,
+        }),
+      });
+      if (!response.ok) return;
+      setMessages((prev) =>
+        prev.map((msg) => (msg.id === messageId ? { ...msg, memoryDecision: action === 'confirm' ? 'confirmed' : action === 'reject' ? 'rejected' : 'never_ask' } : msg))
+      );
+    } catch (error) {
+      console.error('记忆确认失败:', error);
+    } finally {
+      setMemoryActionLoading(null);
+    }
+  };
 
   // 获取右侧数据
   useEffect(() => {
@@ -766,6 +960,24 @@ export default function CreativeAgentPageNew() {
               }
               break;
             }
+
+            case 'memory_candidate': {
+              if (event.data && typeof event.data === 'object') {
+                const candidate = event.data as MemoryCandidate;
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: generateId('msg'),
+                    type: 'assistant',
+                    content: candidate.question || '这条信息要帮你记住吗？',
+                    timestamp: new Date(),
+                    memoryCandidate: candidate,
+                    memoryDecision: 'pending',
+                  },
+                ]);
+              }
+              break;
+            }
               
             case 'done':
               addDebugLog('sse', '收到 done 事件', { 
@@ -782,35 +994,34 @@ export default function CreativeAgentPageNew() {
               addDebugLog('state', '更新 conversationHistory', { 
                 totalLength: conversationHistory.current.length 
               });
-              
-              // 添加分析结果卡片
-              if (currentAnalysis) {
-                setMessages(prev => [...prev, {
-                  id: generateId('msg'),
-                  type: 'assistant',
-                  content: '视频分析完成',
-                  timestamp: new Date(),
-                  videoAnalysis: currentAnalysis
-                }]);
+
+              // 将结构化结果绑定到流式消息，避免“正文+额外卡片消息”重复堆叠
+              const streamingId = streamingMessageIdRef.current;
+              if (streamingId) {
+                const { cleanedContent, attachments: imageAttachments } = extractImageAttachments(currentText);
+                const hasScriptDup =
+                  currentScripts.length > 0 &&
+                  currentScripts.some((script) =>
+                    (script.content || '').trim() &&
+                    cleanedContent.includes((script.content || '').trim().slice(0, 40))
+                  );
+                setMessages((prev) =>
+                  prev.map((msg) => {
+                    if (msg.id !== streamingId) return msg;
+                    return {
+                      ...msg,
+                      content: hasScriptDup ? '已生成结构化脚本，请查看下方表格。' : cleanedContent,
+                      attachments: [...(msg.attachments || []), ...imageAttachments],
+                      videoAnalysis: currentAnalysis || msg.videoAnalysis,
+                      scriptOptions: currentScripts.length > 0 ? currentScripts : msg.scriptOptions,
+                    };
+                  })
+                );
               }
-              
-              // 添加脚本选项
-              if (currentScripts.length > 0) {
-                setMessages(prev => [...prev, {
-                  id: generateId('msg'),
-                  type: 'assistant',
-                  content: '请选择一个脚本风格',
-                  timestamp: new Date(),
-                  scriptOptions: currentScripts
-                }]);
-              }
-              
-              // 🔧 简化：删除视频卡片，只显示文字提示（视频生成后去视频历史页面查看）
-              // 原：显示视频卡片，但无法更新状态，无实际用途
               
               setIsLoading(false);
               streamingMessageIdRef.current = null;
-              loadSessions();
+              loadSessions({ preferredSessionId: activeSessionId });
               break;
           }
         }
@@ -1014,6 +1225,7 @@ export default function CreativeAgentPageNew() {
               <Select
                 value={activeSessionId || undefined}
                 onValueChange={(value) => {
+                  if (isLoading || sessionLoading) return;
                   setActiveSessionId(value);
                   setMessages([]);
                   conversationHistory.current = [];
@@ -1033,13 +1245,10 @@ export default function CreativeAgentPageNew() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => {
-                  setActiveSessionId(null);
-                  setMessages([]);
-                  conversationHistory.current = [];
-                }}
+                onClick={handleCreateSession}
+                disabled={isLoading || sessionLoading}
               >
-                新会话
+                {sessionLoading ? '创建中...' : '新会话'}
               </Button>
               <Badge variant="outline" className="text-xs">
                 <span className="w-2 h-2 rounded-full bg-green-500 mr-1" />
@@ -1082,6 +1291,54 @@ export default function CreativeAgentPageNew() {
                     {m.scriptOptions.map(script => (
                       <ScriptPreviewCard key={script.id} script={script} />
                     ))}
+                  </div>
+                ))}
+
+                {messages.map((m) => m.memoryCandidate && (
+                  <div key={`memory-${m.id}`} className="mt-4">
+                    <Card className="border-primary/20 bg-primary/5">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base">记忆确认</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <p className="text-sm text-muted-foreground">{m.memoryCandidate.content}</p>
+                        {m.memoryDecision === 'pending' ? (
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => handleMemoryDecision(m.id, 'confirm', m.memoryCandidate)}
+                              disabled={memoryActionLoading === m.id}
+                            >
+                              记住
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleMemoryDecision(m.id, 'reject', m.memoryCandidate)}
+                              disabled={memoryActionLoading === m.id}
+                            >
+                              这次不记
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => handleMemoryDecision(m.id, 'never_ask', m.memoryCandidate)}
+                              disabled={memoryActionLoading === m.id}
+                            >
+                              以后别再问
+                            </Button>
+                          </div>
+                        ) : (
+                          <Badge variant="outline">
+                            {m.memoryDecision === 'confirmed'
+                              ? '已记住'
+                              : m.memoryDecision === 'never_ask'
+                              ? '已关闭记忆询问'
+                              : '本次不记忆'}
+                          </Badge>
+                        )}
+                      </CardContent>
+                    </Card>
                   </div>
                 ))}
                 

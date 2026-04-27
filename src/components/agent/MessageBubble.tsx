@@ -125,26 +125,49 @@ export function MessageBubble({
         
         {/* 附件展示 */}
         {attachments.length > 0 && (
-          <div className={cn(
-            'flex flex-wrap gap-2 mt-2',
-            isUser && 'flex-row-reverse'
-          )}>
-            {attachments.map((attachment, index) => (
-              <div 
-                key={index}
-                className={cn(
-                  'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs',
-                  isUser 
-                    ? 'bg-primary-foreground/20 text-primary-foreground' 
-                    : 'bg-muted text-muted-foreground'
-                )}
-              >
-                {getAttachmentIcon(attachment.type)}
-                <span className="max-w-[120px] truncate">
-                  {attachment.name || '附件'}
-                </span>
+          <div className="mt-2 space-y-2">
+            <div className={cn(
+              'flex flex-wrap gap-2',
+              isUser && 'flex-row-reverse'
+            )}>
+              {attachments.map((attachment, index) => (
+                <div 
+                  key={index}
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs',
+                    isUser 
+                      ? 'bg-primary-foreground/20 text-primary-foreground' 
+                      : 'bg-muted text-muted-foreground'
+                  )}
+                >
+                  {getAttachmentIcon(attachment.type)}
+                  <span className="max-w-[120px] truncate">
+                    {attachment.name || '附件'}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {attachments.some((attachment) => attachment.type === 'image') && (
+              <div className={cn('grid gap-2', isUser ? 'justify-items-end' : 'justify-items-start')}>
+                {attachments
+                  .filter((attachment) => attachment.type === 'image')
+                  .map((attachment, index) => (
+                    <a
+                      key={`img_${index}`}
+                      href={attachment.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block"
+                    >
+                      <img
+                        src={attachment.url}
+                        alt={attachment.name || `图片 ${index + 1}`}
+                        className="max-w-[220px] max-h-[220px] rounded-lg border object-cover"
+                      />
+                    </a>
+                  ))}
               </div>
-            ))}
+            )}
           </div>
         )}
         
