@@ -167,6 +167,15 @@ async function getAgentSystemPrompt(): Promise<string> {
 const MAX_ITERATIONS = 15;
 const MAX_TOOL_STRING_LEN = 2000;
 const HIGH_RISK_TOOLS = new Set(['delete_material', 'clear_session', 'update_material']);
+const LONG_RUNNING_TOOLS = new Set([
+  'submit_video_task',
+  'generate_first_frame',
+  'analyze_video',
+  'analyze_image',
+  'analyze_multiple_images',
+  'generate_script',
+  'batch_generate',
+]);
 const TOOL_REQUIRED_FIELDS: Record<string, string[]> = {
   submit_video_task: ['prompt'],
   generate_script: ['product_name'],
@@ -219,6 +228,10 @@ function validateToolCall(toolName: string, params: Record<string, any>): string
     }
   }
   return null;
+}
+
+function isLongRunningTool(toolName: string): boolean {
+  return LONG_RUNNING_TOOLS.has(toolName);
 }
 
 function extractMemoryCandidate(userMessageContent: string): MemoryCandidate | null {
@@ -709,136 +722,109 @@ export async function POST(request: NextRequest) {
             }
             
             if (toolCalls.length > 0) {
-              // 处理第一个工具调用
-              const toolCall = toolCalls[0];
-              const toolName = toolCall.name;
-              const toolParams = sanitizeToolParams(toolCall.params);
-              const thought = toolCall.thought || '';
+              let hadToolExecution = false;
+              for (const toolCall of toolCalls) {
+                const toolName = toolCall.name;
+                const toolParams = sanitizeToolParams(toolCall.params);
+                console.log(`🛠️ [Agent] 调用工具: ${toolName}`);
+                console.log(`📦 [Agent] 参数:`, toolParams);
+                sendEvent({ type: 'tool_start', tool: toolName, params: toolParams });
 
-              console.log(`🛠️ [Agent] 调用工具: ${toolName}`);
-              console.log(`📦 [Agent] 参数:`, toolParams);
-
-              // 发送工具调用开始
-              sendEvent({ type: 'tool_start', tool: toolName, params: toolParams });
-
-              // 检查工具是否存在
-              if (!(toolName in tools)) {
-                const errorResult = { error: `未知工具: ${toolName}` };
-                sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(errorResult) });
-                
-                messages.push({
-                  role: 'user',
-                  content: `[工具调用结果]\n工具: ${toolName}\n结果: ${JSON.stringify(errorResult)}`
-                });
-                continue;
-              }
-
-              const guardrailError = validateToolCall(toolName, toolParams);
-              if (guardrailError) {
-                const errorResult = { success: false, error: guardrailError, data: null };
-                sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(errorResult) });
-                messages.push({
-                  role: 'user',
-                  content: `[工具调用结果]\n工具: ${toolName}\n结果: ${JSON.stringify(errorResult)}`
-                });
-                continue;
-              }
-
-              // 执行工具
-              try {
-                const result = await (tools as any)[toolName](toolParams);
-                console.log(`✅ [Agent] 工具执行成功`);
-                
-                // 根据工具类型，添加上下文信息
-                let contextAddition = '';
-                
-                // 如果是脚本生成，添加脚本生成上下文
-                if (toolName === 'generate_script' && result.success && result.data) {
-                  contextAddition = `\n\n脚本已生成，请展示给用户选择。`;
+                if (!(toolName in tools)) {
+                  const errorResult = { error: `未知工具: ${toolName}` };
+                  sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(errorResult) });
+                  messages.push({ role: 'user', content: `[工具调用结果]\n工具: ${toolName}\n结果: ${JSON.stringify(errorResult)}` });
+                  hadToolExecution = true;
+                  continue;
                 }
 
-                // 发送结果
-                sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(result) });
-                emitPart(buildToolResultCardPart(toolName, result), 'tool_result');
-                if (toolName === 'generate_script' && result?.success) {
-                  const scriptTablePart = buildScriptTablePartFromUnknown(result.data);
-                  if (scriptTablePart) {
-                    emitPart(scriptTablePart, 'tool_generate_script');
-                  }
+                const guardrailError = validateToolCall(toolName, toolParams);
+                if (guardrailError) {
+                  const errorResult = { success: false, error: guardrailError, data: null };
+                  sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(errorResult) });
+                  messages.push({ role: 'user', content: `[工具调用结果]\n工具: ${toolName}\n结果: ${JSON.stringify(errorResult)}` });
+                  hadToolExecution = true;
+                  continue;
                 }
-                if (
-                  workerTaskId &&
-                  userId &&
-                  session?.id &&
-                  (toolName === 'submit_video_task' || toolName === 'generate_first_frame') &&
-                  result?.success
-                ) {
-                  const expectedCountRaw =
-                    Number(toolParams?.batch_count) ||
-                    Number(toolParams?.batchCount) ||
-                    Number(toolParams?.count) ||
-                    Number(toolParams?.batch_generate_count) ||
-                    Number(toolParams?.batchGenerateCount) ||
-                    1;
-                  const expectedCount = Number.isFinite(expectedCountRaw) && expectedCountRaw > 0 ? Math.floor(expectedCountRaw) : 1;
-                  await taskStateService.transitionTask(workerTaskId, 'partial_succeeded', {
-                    progress: expectedCount > 1 ? 70 : 90,
-                    error_message: null,
-                    output_data: {
-                      submit_result: result?.data ?? null,
-                      tool: toolName,
-                      lifecycle: 'submitted_to_background',
-                      expected_count: expectedCount,
-                    },
-                  });
-                  await taskStateService.appendEvent(workerTaskId, userId, session.id, 'task_submitted', {
-                    tool: toolName,
-                    result: result?.data ?? null,
-                    expected_count: expectedCount,
-                  });
+
+                if (isLongRunningTool(toolName) && workerTaskId && userId && session?.id) {
                   await taskStateService.appendTaskItem({
                     taskId: workerTaskId,
                     userId,
                     sessionId: session.id,
-                    status: 'succeeded',
-                    inputData: {
-                      tool: toolName,
-                      params: toolParams,
-                    },
-                    outputData: {
-                      result: result?.data ?? null,
-                    },
+                    status: 'running',
+                    inputData: { tool: toolName, params: toolParams },
                   });
-                  sendEvent({
-                    type: 'task',
+                  void (async () => {
+                    try {
+                      const result = await (tools as any)[toolName](toolParams);
+                      await taskStateService.appendTaskItem({
+                        taskId: workerTaskId,
+                        userId,
+                        sessionId: session.id,
+                        status: result?.success ? 'succeeded' : 'failed',
+                        inputData: { tool: toolName, params: toolParams },
+                        outputData: { result: result?.data ?? null },
+                        errorMessage: result?.success ? null : (result?.error || '工具执行失败'),
+                      });
+                      await taskStateService.appendEvent(workerTaskId, userId, session.id, result?.success ? 'task_item_succeeded' : 'task_item_failed', {
+                        tool: toolName,
+                        result: result?.data ?? null,
+                        error: result?.success ? null : (result?.error || '工具执行失败'),
+                      });
+                      await taskStateService.aggregateTaskFromItems(workerTaskId);
+                    } catch (toolError) {
+                      await taskStateService.appendTaskItem({
+                        taskId: workerTaskId,
+                        userId,
+                        sessionId: session.id,
+                        status: 'failed',
+                        inputData: { tool: toolName, params: toolParams },
+                        errorMessage: toolError instanceof Error ? toolError.message : '工具执行失败',
+                      });
+                      await taskStateService.appendEvent(workerTaskId, userId, session.id, 'task_item_failed', {
+                        tool: toolName,
+                        error: toolError instanceof Error ? toolError.message : '工具执行失败',
+                      });
+                      await taskStateService.aggregateTaskFromItems(workerTaskId);
+                    }
+                  })();
+
+                  const asyncAck = {
+                    success: true,
                     data: {
-                      taskId: workerTaskId,
-                      status: 'submitted',
-                      expectedCount,
-                      note: expectedCount > 1
-                        ? `批量任务已提交后台（预期 ${expectedCount} 条）`
-                        : '任务已提交后台执行，可切换页面稍后回看结果',
+                      task_id: workerTaskId,
+                      queued_tool: toolName,
                     },
-                  });
+                    message: '工具已转后台执行',
+                  };
+                  sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(asyncAck) });
+                  emitPart(buildToolResultCardPart(toolName, asyncAck), 'tool_result');
+                  sendEvent({ type: 'task', data: { taskId: workerTaskId, status: 'running', note: `已转后台执行: ${toolName}` } });
+                  messages.push({ role: 'user', content: `[工具调用结果]\n工具: ${toolName}\n结果: ${JSON.stringify(asyncAck)}` });
+                  hadToolExecution = true;
+                  continue;
                 }
 
-                // 添加反馈
-                messages.push({
-                  role: 'user',
-                  content: `[工具调用结果]\n工具: ${toolName}\n结果: ${JSON.stringify(result)}${contextAddition}`
-                });
-              } catch (toolError) {
-                const errorResult = { error: toolError instanceof Error ? toolError.message : '工具执行失败' };
-                sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(errorResult) });
-                emitPart(buildToolResultCardPart(toolName, errorResult), 'tool_result');
-                
-                messages.push({
-                  role: 'user',
-                  content: `[工具调用结果]\n工具: ${toolName}\n结果: ${JSON.stringify(errorResult)}`
-                });
+                try {
+                  const result = await (tools as any)[toolName](toolParams);
+                  sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(result) });
+                  emitPart(buildToolResultCardPart(toolName, result), 'tool_result');
+                  if (toolName === 'generate_script' && result?.success) {
+                    const scriptTablePart = buildScriptTablePartFromUnknown(result.data);
+                    if (scriptTablePart) emitPart(scriptTablePart, 'tool_generate_script');
+                  }
+                  messages.push({ role: 'user', content: `[工具调用结果]\n工具: ${toolName}\n结果: ${JSON.stringify(result)}` });
+                } catch (toolError) {
+                  const errorResult = { error: toolError instanceof Error ? toolError.message : '工具执行失败' };
+                  sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(errorResult) });
+                  emitPart(buildToolResultCardPart(toolName, errorResult), 'tool_result');
+                  messages.push({ role: 'user', content: `[工具调用结果]\n工具: ${toolName}\n结果: ${JSON.stringify(errorResult)}` });
+                }
+                hadToolExecution = true;
               }
               await persistAssistantParts();
-              continue;
+              if (hadToolExecution) continue;
             }
 
             // 结构化响应（video_analysis, script_options, task 等）

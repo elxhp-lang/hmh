@@ -6,7 +6,7 @@ type WorkerTaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancell
 const ALLOWED_TRANSITIONS: Record<WorkerTaskStatus, WorkerTaskStatus[]> = {
   queued: ['running', 'cancelled', 'failed'],
   running: ['succeeded', 'failed', 'cancelled', 'partial_succeeded'],
-  partial_succeeded: ['succeeded', 'failed', 'cancelled'],
+  partial_succeeded: ['running', 'succeeded', 'failed', 'cancelled'],
   succeeded: [],
   failed: ['queued'],
   cancelled: ['queued'],
@@ -128,6 +128,73 @@ export class TaskStateService {
       completed_at: params.status === 'succeeded' || params.status === 'failed' || params.status === 'cancelled'
         ? new Date().toISOString()
         : null,
+    });
+  }
+
+  async updateTaskItem(
+    itemId: string,
+    patch: {
+      status?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+      progress?: number;
+      outputData?: Record<string, unknown>;
+      errorMessage?: string | null;
+      startedAt?: string | null;
+      completedAt?: string | null;
+    }
+  ): Promise<void> {
+    const supabase = getSupabaseClient();
+    await supabase
+      .from('worker_task_items')
+      .update({
+        status: patch.status,
+        progress: patch.progress,
+        output_data: patch.outputData,
+        error_message: patch.errorMessage,
+        started_at: patch.startedAt,
+        completed_at: patch.completedAt,
+      })
+      .eq('id', itemId);
+  }
+
+  async aggregateTaskFromItems(taskId: string): Promise<void> {
+    const supabase = getSupabaseClient();
+    const { data: items } = await supabase
+      .from('worker_task_items')
+      .select('status')
+      .eq('task_id', taskId);
+    const list = items || [];
+    if (!list.length) return;
+    const total = list.length;
+    const succeeded = list.filter((x: any) => x.status === 'succeeded').length;
+    const failed = list.filter((x: any) => x.status === 'failed').length;
+    const running = list.filter((x: any) => x.status === 'running').length;
+    const queued = list.filter((x: any) => x.status === 'queued').length;
+    const progress = Math.max(1, Math.min(100, Math.round((succeeded / total) * 100)));
+
+    if (running > 0 || queued > 0) {
+      await this.transitionTask(taskId, 'running', {
+        progress,
+        output_data: { total, succeeded, failed, queued, running },
+      });
+      return;
+    }
+    if (failed > 0 && succeeded > 0) {
+      await this.transitionTask(taskId, 'partial_succeeded', {
+        progress: 100,
+        output_data: { total, succeeded, failed, queued, running },
+      });
+      return;
+    }
+    if (failed > 0 && succeeded === 0) {
+      await this.transitionTask(taskId, 'failed', {
+        progress: 100,
+        output_data: { total, succeeded, failed, queued, running },
+      });
+      return;
+    }
+    await this.transitionTask(taskId, 'succeeded', {
+      progress: 100,
+      output_data: { total, succeeded, failed, queued, running },
     });
   }
 }
