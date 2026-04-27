@@ -555,6 +555,36 @@ export class AgentToolsService {
     error?: string;
   }> {
     try {
+      // 0) 先尝试识别为 Worker 主任务 ID（创意小海后台任务）
+      const currentUserId = this.currentUserId && this.currentUserId !== 'anonymous' ? this.currentUserId : null;
+      let workerQuery = this.supabase
+        .from('worker_tasks')
+        .select('id,status,progress,error_message,output_data,session_id,created_at')
+        .eq('id', taskIdOrVideoId);
+      if (currentUserId) {
+        workerQuery = workerQuery.eq('user_id', currentUserId);
+      }
+      const { data: workerTask } = await workerQuery.single();
+      if (workerTask) {
+        const workerData = workerTask as any;
+        const outputData = (workerData.output_data || {}) as Record<string, any>;
+        const submitResult = (outputData.submit_result || {}) as Record<string, any>;
+        const workerVideoUrl =
+          (typeof submitResult.public_video_url === 'string' && submitResult.public_video_url) ||
+          (typeof submitResult.video_url === 'string' && submitResult.video_url) ||
+          undefined;
+        return {
+          success: true,
+          data: {
+            task_id: String(workerData.id),
+            status: String(workerData.status || 'running'),
+            progress: Number(workerData.progress || 0),
+            video_url: workerVideoUrl,
+            error: workerData.error_message || undefined,
+          },
+        };
+      }
+
       // 先查本地数据库 - 优先用 task_id（Seedance ID）查
       let { data, error } = await this.supabase
         .from('videos')
