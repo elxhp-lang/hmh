@@ -633,10 +633,15 @@ export class AgentToolsService {
       
       // ========== 双笔记本系统：保存用户偏好（笔记本2号）==========
       save_user_preference: async (params: {
-        preference_type: 'aspect_ratio' | 'duration' | 'style' | 'industry' | 'product_tags' | 'custom';
+        preference_type?: 'aspect_ratio' | 'duration' | 'style' | 'industry' | 'product_tags' | 'custom';
+        preferenceType?: 'aspect_ratio' | 'duration' | 'style' | 'industry' | 'product_tags' | 'custom';
         content: string;
         tags?: string[];
-      }) => this.saveCreativeUserPreference(params),
+      }) => this.saveCreativeUserPreference({
+        preferenceType: params.preferenceType || params.preference_type,
+        content: params.content,
+        tags: params.tags,
+      }),
       
       search_product: async (params: { keyword: string; count?: number }) =>
         this.searchProduct(params.keyword, params.count),
@@ -784,11 +789,16 @@ export class AgentToolsService {
       // ========== 首帧图生成工具 ==========
       
       generate_first_frame: async (params: { 
-        product_image_url: string;      // 商品图片 URL
-        script_content: string;         // 脚本描述
+        product_image_url?: string;      // 商品图片 URL（兼容 snake_case）
+        productImageUrl?: string;        // 商品图片 URL（推荐 camelCase）
+        script_content?: string;         // 脚本描述（兼容 snake_case）
+        scriptContent?: string;          // 脚本描述（推荐 camelCase）
+        prompt?: string;                 // 纯文生图提示词
         aspect_ratio?: string;          // 视频比例 9:16 或 16:9
+        aspectRatio?: string;           // 视频比例（camelCase）
         style?: string;                 // 风格描述
         reference_style?: string;       // 参考视频风格
+        referenceStyle?: string;        // 参考视频风格（camelCase）
       }) => this.generateFirstFrame(params),
       
       // ========== 协作记忆工具 ==========
@@ -831,25 +841,30 @@ export class AgentToolsService {
 
       saveUserMemory: async (params: {
         content: string;
-        memory_type: 'general' | 'preference' | 'experience' | 'rule' | 'document';
+        memory_type?: 'general' | 'preference' | 'experience' | 'rule' | 'document';
+        memoryType?: 'general' | 'preference' | 'experience' | 'rule' | 'document';
         keywords: string[];
       }) => this.saveUserMemory(params),
 
       getUserMemories: async (params: {
         query: string;
         memory_type?: string;
+        memoryType?: string;
         limit?: number;
       }) => this.getUserMemories(params),
 
       searchUserMemories: async (params: {
         keyword: string;
         memory_type?: string;
+        memoryType?: string;
       }) => this.searchUserMemories(params),
 
       recordLearning: async (params: {
-        record_type: 'correction' | 'success' | 'error' | 'improvement';
+        record_type?: 'correction' | 'success' | 'error' | 'improvement';
+        recordType?: 'correction' | 'success' | 'error' | 'improvement';
         content: string;
         original_content?: string;
+        originalContent?: string;
         feedback?: string;
         score?: number;
         tags?: string[];
@@ -858,6 +873,7 @@ export class AgentToolsService {
       getLearningRecords: async (params: {
         query?: string;
         record_type?: string;
+        recordType?: string;
         limit?: number;
       }) => this.getLearningRecords(params),
 
@@ -1564,11 +1580,16 @@ ${modification}
    * 支持图生图模式，保持商品特征
    */
   private async generateFirstFrame(params: {
-    product_image_url: string;
-    script_content: string;
+    product_image_url?: string;
+    productImageUrl?: string;
+    script_content?: string;
+    scriptContent?: string;
+    prompt?: string;
     aspect_ratio?: string;
+    aspectRatio?: string;
     style?: string;
     reference_style?: string;
+    referenceStyle?: string;
   }): Promise<{
     success: boolean;
     data?: {
@@ -1579,11 +1600,12 @@ ${modification}
   }> {
     try {
       const result = await this.imageGenerationService.generateFirstFrame({
-        productImageUrl: params.product_image_url,
-        scriptContent: params.script_content,
-        aspectRatio: params.aspect_ratio,
+        productImageUrl: params.productImageUrl || params.product_image_url,
+        scriptContent: params.scriptContent || params.script_content,
+        prompt: params.prompt,
+        aspectRatio: params.aspectRatio || params.aspect_ratio,
         style: params.style,
-        referenceStyle: params.reference_style,
+        referenceStyle: params.referenceStyle || params.reference_style,
       });
 
       if (result.success && result.imageUrl) {
@@ -1889,7 +1911,8 @@ ${modification}
    */
   private async saveCreativeUserPreference(
     params: {
-      preference_type: 'aspect_ratio' | 'duration' | 'style' | 'industry' | 'product_tags' | 'custom';
+      preference_type?: 'aspect_ratio' | 'duration' | 'style' | 'industry' | 'product_tags' | 'custom';
+      preferenceType?: 'aspect_ratio' | 'duration' | 'style' | 'industry' | 'product_tags' | 'custom';
       content: string;
       tags?: string[];
     }
@@ -1899,16 +1922,20 @@ ${modification}
   }> {
     try {
       const userId = this.getUserId();
-      const { preference_type, content, tags } = params;
+      const preferenceType = params.preferenceType || params.preference_type;
+      const { content, tags } = params;
+      if (!preferenceType) {
+        return { success: false, error: '缺少 preferenceType 参数' };
+      }
 
-      console.log(`📕 [笔记本2号] 保存用户偏好: ${preference_type} = ${content.substring(0, 50)}`);
+      console.log(`📕 [笔记本2号] 保存用户偏好: ${preferenceType} = ${content.substring(0, 50)}`);
 
       // 先删除同一类型的旧偏好，然后插入新的
       const { error: deleteError } = await this.supabase
         .from('creative_user_preferences')
         .delete()
         .eq('user_id', userId)
-        .eq('preference_type', preference_type);
+        .eq('preference_type', preferenceType);
 
       if (deleteError) {
         console.warn('📕 [笔记本2号] 删除旧偏好失败:', deleteError);
@@ -1919,7 +1946,7 @@ ${modification}
         .from('creative_user_preferences')
         .insert({
           user_id: userId,
-          preference_type,
+          preference_type: preferenceType,
           content,
           tags: tags || null,
           last_updated_at: new Date().toISOString()
@@ -2170,15 +2197,20 @@ ${modification}
    */
   async saveUserMemory(params: {
     content: string;
-    memory_type: 'general' | 'preference' | 'experience' | 'rule' | 'document';
+    memory_type?: 'general' | 'preference' | 'experience' | 'rule' | 'document';
+    memoryType?: 'general' | 'preference' | 'experience' | 'rule' | 'document';
     keywords: string[];
   }): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const userId = this.getUserId();
+      const memoryType = params.memoryType || params.memory_type;
+      if (!memoryType) {
+        return { success: false, error: '缺少 memoryType 参数' };
+      }
       const result = await this.memoryService.saveMemory(
         userId,
         params.content,
-        params.memory_type,
+        memoryType,
         params.keywords
       );
       return result;
@@ -2193,6 +2225,7 @@ ${modification}
   async getUserMemories(params: {
     query: string;
     memory_type?: string;
+    memoryType?: string;
     limit?: number;
   }): Promise<{ success: boolean; data?: any[]; error?: string }> {
     try {
@@ -2200,7 +2233,7 @@ ${modification}
       const result = await this.memoryService.getMemories(
         userId,
         params.query,
-        params.memory_type,
+        params.memoryType || params.memory_type,
         params.limit || 10
       );
       return result;
@@ -2215,13 +2248,14 @@ ${modification}
   async searchUserMemories(params: {
     keyword: string;
     memory_type?: string;
+    memoryType?: string;
   }): Promise<{ success: boolean; data?: any[]; error?: string }> {
     try {
       const userId = this.getUserId();
       const result = await this.memoryService.searchMemories(
         userId,
         params.keyword,
-        params.memory_type
+        params.memoryType || params.memory_type
       );
       return result;
     } catch (error) {
@@ -2233,21 +2267,27 @@ ${modification}
    * 工具29：记录学习
    */
   async recordLearning(params: {
-    record_type: 'correction' | 'success' | 'error' | 'improvement';
+    record_type?: 'correction' | 'success' | 'error' | 'improvement';
+    recordType?: 'correction' | 'success' | 'error' | 'improvement';
     content: string;
     original_content?: string;
+    originalContent?: string;
     feedback?: string;
     score?: number;
     tags?: string[];
   }): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const userId = this.getUserId();
+      const recordType = params.recordType || params.record_type;
+      if (!recordType) {
+        return { success: false, error: '缺少 recordType 参数' };
+      }
       const result = await this.evolutionService.recordLearning(
         userId,
-        params.record_type,
+        recordType,
         params.content,
         {
-          originalContent: params.original_content,
+          originalContent: params.originalContent || params.original_content,
           feedback: params.feedback,
           score: params.score,
           tags: params.tags
@@ -2265,6 +2305,7 @@ ${modification}
   async getLearningRecords(params: {
     query?: string;
     record_type?: string;
+    recordType?: string;
     limit?: number;
   }): Promise<{ success: boolean; data?: any[]; error?: string }> {
     try {
@@ -2272,7 +2313,7 @@ ${modification}
       const result = await this.evolutionService.getLearningRecords(
         userId,
         params.query,
-        params.record_type as any,
+        (params.recordType || params.record_type) as any,
         params.limit || 10
       );
       return result;

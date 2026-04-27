@@ -13,8 +13,9 @@ import { LearningLibraryStorage } from './tos-storage';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 
 export interface GenerateFirstFrameRequest {
-  productImageUrl: string;    // 商品图片 URL
-  scriptContent: string;      // 脚本描述（用于生成首帧场景）
+  productImageUrl?: string;   // 商品图片 URL（可选，支持纯文生图）
+  scriptContent?: string;     // 脚本描述（用于生成首帧场景）
+  prompt?: string;            // 直接提示词（优先于脚本描述）
   aspectRatio?: string;      // 视频比例 9:16 或 16:9
   style?: string;            // 风格描述
   referenceStyle?: string;   // 参考视频风格
@@ -53,25 +54,36 @@ export class ImageGenerationService {
    */
   async generateFirstFrame(request: GenerateFirstFrameRequest): Promise<GenerateFirstFrameResult> {
     try {
-      const { productImageUrl, scriptContent, aspectRatio = '9:16', style, referenceStyle } = request;
+      const {
+        productImageUrl,
+        scriptContent = '',
+        prompt,
+        aspectRatio = '9:16',
+        style,
+        referenceStyle,
+      } = request;
 
       console.log('[首帧图生成] 开始生成:', {
         productImageUrl,
         scriptContent: scriptContent.substring(0, 100),
+        hasPrompt: Boolean(prompt),
         aspectRatio
       });
 
       // 构建提示词
-      const prompt = this.buildFirstFramePrompt(scriptContent, style, referenceStyle);
+      const finalPrompt: string =
+        typeof prompt === 'string' && prompt.trim().length > 0
+          ? prompt.trim()
+          : this.buildFirstFramePrompt(scriptContent, style, referenceStyle);
 
       // 确定尺寸
       const size = aspectRatio === '9:16' ? '2K' : '2K';
 
-      // 调用图片生成 API（图生图模式）
+      // 调用图片生成 API（支持文生图/图生图）
       const response = await this.client.generate({
-        prompt,
+        prompt: finalPrompt,
         size,
-        image: productImageUrl,  // 参考商品图
+        image: productImageUrl || undefined,  // 有图则图生图，无图则文生图
         watermark: false,
       });
 
@@ -95,7 +107,7 @@ export class ImageGenerationService {
       const signedUrl = await LearningLibraryStorage.getLearningVideoUrl(tosKey);
 
       // 保存到数据库
-      const imageId = await this.saveToDatabase(tosKey, signedUrl, prompt);
+      const imageId = await this.saveToDatabase(tosKey, signedUrl, finalPrompt);
 
       return {
         success: true,
