@@ -95,4 +95,39 @@ export class TaskStateService {
       parts: parts || [],
     });
   }
+
+  async appendTaskItem(params: {
+    taskId: string;
+    userId: string;
+    sessionId: string;
+    status?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+    inputData?: Record<string, unknown>;
+    outputData?: Record<string, unknown>;
+    errorMessage?: string | null;
+  }): Promise<void> {
+    const supabase = getSupabaseClient();
+    const { data: latest } = await supabase
+      .from('worker_task_items')
+      .select('item_index')
+      .eq('task_id', params.taskId)
+      .order('item_index', { ascending: false })
+      .limit(1)
+      .single();
+    const nextIndex = typeof latest?.item_index === 'number' ? latest.item_index + 1 : 0;
+    await supabase.from('worker_task_items').insert({
+      task_id: params.taskId,
+      user_id: params.userId,
+      session_id: params.sessionId,
+      item_index: nextIndex,
+      status: params.status || 'queued',
+      progress: params.status === 'succeeded' ? 100 : 0,
+      input_data: params.inputData || {},
+      output_data: params.outputData || {},
+      error_message: params.errorMessage || null,
+      started_at: params.status === 'queued' ? null : new Date().toISOString(),
+      completed_at: params.status === 'succeeded' || params.status === 'failed' || params.status === 'cancelled'
+        ? new Date().toISOString()
+        : null,
+    });
+  }
 }

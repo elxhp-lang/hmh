@@ -19,7 +19,7 @@ export async function GET(
     if (!taskId) return ok(false, null, '缺少 taskId', 400);
 
     const supabase = getSupabaseClient();
-    const [{ data: task }, { data: events }, { data: outputs }] = await Promise.all([
+    const [{ data: task }, { data: events }, { data: outputs }, { data: items }] = await Promise.all([
       supabase
         .from('worker_tasks')
         .select('id,user_id,session_id,task_type,status,progress,error_message,retry_count,max_retries,queued_at,started_at,completed_at,created_at,updated_at,input_data,output_data')
@@ -40,6 +40,13 @@ export async function GET(
         .eq('user_id', userId)
         .order('created_at', { ascending: true })
         .limit(200),
+      supabase
+        .from('worker_task_items')
+        .select('id,item_index,status,progress,input_data,output_data,error_message,created_at,updated_at')
+        .eq('task_id', taskId)
+        .eq('user_id', userId)
+        .order('item_index', { ascending: true })
+        .limit(500),
     ]);
 
     if (!task) return ok(false, null, '任务不存在', 404);
@@ -47,6 +54,7 @@ export async function GET(
       task,
       events: events || [],
       outputs: outputs || [],
+      items: items || [],
     }, '任务详情加载成功');
   } catch (error) {
     return ok(false, null, `获取任务详情失败: ${error instanceof Error ? error.message : '未知错误'}`, 500);

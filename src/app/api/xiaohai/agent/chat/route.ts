@@ -709,7 +709,6 @@ export async function POST(request: NextRequest) {
             }
             
             if (toolCalls.length > 0) {
-              let shouldEndAfterToolSubmit = false;
               // 处理第一个工具调用
               const toolCall = toolCalls[0];
               const toolName = toolCall.name;
@@ -774,21 +773,53 @@ export async function POST(request: NextRequest) {
                   (toolName === 'submit_video_task' || toolName === 'generate_first_frame') &&
                   result?.success
                 ) {
-                  await taskStateService.transitionTask(workerTaskId, 'succeeded', {
-                    progress: 100,
-                    completed_at: new Date().toISOString(),
+                  const expectedCountRaw =
+                    Number(toolParams?.batch_count) ||
+                    Number(toolParams?.batchCount) ||
+                    Number(toolParams?.count) ||
+                    Number(toolParams?.batch_generate_count) ||
+                    Number(toolParams?.batchGenerateCount) ||
+                    1;
+                  const expectedCount = Number.isFinite(expectedCountRaw) && expectedCountRaw > 0 ? Math.floor(expectedCountRaw) : 1;
+                  await taskStateService.transitionTask(workerTaskId, 'partial_succeeded', {
+                    progress: expectedCount > 1 ? 70 : 90,
                     error_message: null,
                     output_data: {
                       submit_result: result?.data ?? null,
                       tool: toolName,
                       lifecycle: 'submitted_to_background',
+                      expected_count: expectedCount,
                     },
                   });
                   await taskStateService.appendEvent(workerTaskId, userId, session.id, 'task_submitted', {
                     tool: toolName,
                     result: result?.data ?? null,
+                    expected_count: expectedCount,
                   });
-                  shouldEndAfterToolSubmit = true;
+                  await taskStateService.appendTaskItem({
+                    taskId: workerTaskId,
+                    userId,
+                    sessionId: session.id,
+                    status: 'succeeded',
+                    inputData: {
+                      tool: toolName,
+                      params: toolParams,
+                    },
+                    outputData: {
+                      result: result?.data ?? null,
+                    },
+                  });
+                  sendEvent({
+                    type: 'task',
+                    data: {
+                      taskId: workerTaskId,
+                      status: 'submitted',
+                      expectedCount,
+                      note: expectedCount > 1
+                        ? `批量任务已提交后台（预期 ${expectedCount} 条）`
+                        : '任务已提交后台执行，可切换页面稍后回看结果',
+                    },
+                  });
                 }
 
                 // 添加反馈
@@ -807,18 +838,6 @@ export async function POST(request: NextRequest) {
                 });
               }
               await persistAssistantParts();
-              if (shouldEndAfterToolSubmit) {
-                sendEvent({
-                  type: 'task',
-                  data: {
-                    taskId: workerTaskId,
-                    status: 'submitted',
-                    note: '任务已提交后台执行，可切换页面稍后回看结果',
-                  },
-                });
-                controller.close();
-                break;
-              }
               continue;
             }
 
