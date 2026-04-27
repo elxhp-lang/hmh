@@ -167,6 +167,7 @@ async function getAgentSystemPrompt(): Promise<string> {
 const MAX_ITERATIONS = 15;
 const MAX_TOOL_STRING_LEN = 2000;
 const HIGH_RISK_TOOLS = new Set(['delete_material', 'clear_session', 'update_material']);
+const GENERATION_TOOLS = new Set(['submit_video_task', 'generate_first_frame', 'batch_generate']);
 const LONG_RUNNING_TOOLS = new Set([
   'submit_video_task',
   'generate_first_frame',
@@ -232,6 +233,16 @@ function validateToolCall(toolName: string, params: Record<string, any>): string
 
 function isLongRunningTool(toolName: string): boolean {
   return LONG_RUNNING_TOOLS.has(toolName);
+}
+
+function isStatusQueryIntent(message: string): boolean {
+  const text = (message || '').toLowerCase();
+  if (!text) return false;
+  const statusKeywords = ['进度', '状态', '查询', '查一下', '看看任务', 'query', 'status', 'task'];
+  const generationKeywords = ['生成', '重做', '再来', '继续生成', '重新生成'];
+  const hasStatusIntent = statusKeywords.some((k) => text.includes(k));
+  const hasGenerationIntent = generationKeywords.some((k) => text.includes(k));
+  return hasStatusIntent && !hasGenerationIntent;
 }
 
 function extractMemoryCandidate(userMessageContent: string): MemoryCandidate | null {
@@ -491,6 +502,7 @@ export async function POST(request: NextRequest) {
       
       userMessageContent += `\n\n--- 用户上传的素材 ---\n${attachmentDescs.join('\n')}`;
     }
+    const statusQueryIntent = isStatusQueryIntent(userMessageContent);
 
     // 4. 获取工具（webSearchEnabled 参数传递给工具层，由AI自主决定是否使用联网搜索）
     const tools = toolsService.getAllTools(webSearchEnabled);
@@ -747,6 +759,21 @@ export async function POST(request: NextRequest) {
                   const errorResult = { success: false, error: guardrailError, data: null };
                   sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(errorResult) });
                   messages.push({ role: 'user', content: `[工具调用结果]\n工具: ${toolName}\n结果: ${JSON.stringify(errorResult)}` });
+                  hadToolExecution = true;
+                  continue;
+                }
+
+                if (statusQueryIntent && GENERATION_TOOLS.has(toolName)) {
+                  const blockedResult = {
+                    success: false,
+                    error: '当前是进度查询场景，已阻止重新生成任务。请使用 query_task_status 查询任务状态。',
+                    data: null,
+                  };
+                  sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(blockedResult) });
+                  messages.push({
+                    role: 'user',
+                    content: `[工具调用结果]\n工具: ${toolName}\n结果: ${JSON.stringify(blockedResult)}`,
+                  });
                   hadToolExecution = true;
                   continue;
                 }
