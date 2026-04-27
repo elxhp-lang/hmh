@@ -505,7 +505,7 @@ export class AgentToolsService {
       console.log('[submitVideoTask] 任务已提交，seedanceTaskId:', seedanceTaskId);
 
       // 2️⃣ 保存任务记录到 videos 表
-      await this.supabase.from('videos').insert({
+      const { error: insertError } = await this.supabase.from('videos').insert({
         id: videoId,                          // 我们的 video_id
         task_id: seedanceTaskId,             // Seedance 的 task_id（保存到 task_id 字段）
         user_id: userId,
@@ -517,6 +517,9 @@ export class AgentToolsService {
         duration: taskDuration,
         model: modelId,
       });
+      if (insertError) {
+        throw new Error(`保存视频任务失败: ${insertError.message}`);
+      }
 
       // 3️⃣ 返回结果给创意小海
       return {

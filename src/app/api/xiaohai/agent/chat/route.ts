@@ -60,13 +60,17 @@ async function saveConversationMessage(
 ): Promise<string | null> {
   try {
     const supabase = getSupabaseClient();
-    const { data: inserted } = await supabase.from('agent_conversation_messages').insert({
-      user_id: userId,
-      session_id: sessionId,
-      role: role,
-      content: content,
-      parts: Array.isArray(parts) && parts.length > 0 ? parts : null,
-    }).select('id').single();
+    const { data: inserted } = await supabase
+      .from('agent_conversation_messages')
+      .insert({
+        user_id: userId,
+        session_id: sessionId,
+        role: role,
+        content: content,
+        parts: Array.isArray(parts) && parts.length > 0 ? parts : null,
+      })
+      .select('id')
+      .single();
     const now = new Date().toISOString();
     const { data: session } = await supabase
       .from('agent_sessions')
@@ -877,7 +881,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    let historyQuery = supabase
+    const historyQuery = supabase
       .from('agent_conversation_messages')
       .select('*')
       .eq('user_id', userId)
