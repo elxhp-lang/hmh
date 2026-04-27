@@ -1027,6 +1027,36 @@ export default function CreativeAgentPageNew() {
       console.error(`${action} task failed`, error);
     }
   }, [token, loadWorkerTasks]);
+
+  const handleOpenTaskReplay = useCallback(async (taskId: string) => {
+    if (!token || !taskId) return;
+    try {
+      const res = await fetch(`/api/xiaohai/agent/tasks/${taskId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const outputs = (data?.data?.outputs || []) as Array<{ id: string; text_content?: string; parts?: MessagePart[]; created_at?: string }>;
+      if (!outputs.length) return;
+      const replayMessages: Message[] = outputs.map((item) => ({
+        id: `task_${taskId}_${item.id}`,
+        type: 'assistant',
+        content: item.text_content || '',
+        timestamp: new Date(item.created_at || Date.now()),
+        parts: normalizeMessageParts(item.parts),
+      }));
+      setMessages((prev) => {
+        const known = new Set(prev.map((m) => m.id));
+        const next = [...prev];
+        for (const msg of replayMessages) {
+          if (!known.has(msg.id)) next.push(msg);
+        }
+        return next;
+      });
+    } catch (error) {
+      console.error('任务回放失败:', error);
+    }
+  }, [token]);
   
   useEffect(() => {
     scrollToBottom();
@@ -1773,9 +1803,7 @@ export default function CreativeAgentPageNew() {
             tasks={workerTasks}
             onTaskRetry={(taskId) => handleTaskAction('retry', taskId)}
             onTaskCancel={(taskId) => handleTaskAction('cancel', taskId)}
-            onTaskOpen={(taskId) => {
-              setSessionQuery(taskId.slice(0, 8));
-            }}
+            onTaskOpen={handleOpenTaskReplay}
           />
         </div>
       </div>

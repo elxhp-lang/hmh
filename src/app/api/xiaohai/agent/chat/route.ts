@@ -150,6 +150,69 @@ async function ensureCreativeSession(userId: string, preferredSessionId?: string
   return createCreativeSession(userId);
 }
 
+async function createWorkerTask(userId: string, sessionId: string, payload: Record<string, unknown>) {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('worker_tasks')
+    .insert({
+      user_id: userId,
+      session_id: sessionId,
+      task_type: 'creative_chat',
+      status: 'running',
+      progress: 3,
+      input_data: payload,
+      queued_at: new Date().toISOString(),
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single();
+  if (error || !data?.id) throw new Error(`创建任务失败: ${error?.message || 'unknown'}`);
+  return String(data.id);
+}
+
+async function appendTaskEvent(taskId: string, userId: string, sessionId: string, eventType: string, eventData: Record<string, unknown> = {}) {
+  const supabase = getSupabaseClient();
+  await supabase.from('task_events').insert({
+    task_id: taskId,
+    user_id: userId,
+    session_id: sessionId,
+    event_type: eventType,
+    event_data: eventData,
+  });
+}
+
+async function updateWorkerTask(taskId: string, patch: Record<string, unknown>) {
+  const supabase = getSupabaseClient();
+  await supabase
+    .from('worker_tasks')
+    .update({
+      ...patch,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', taskId);
+}
+
+async function saveTaskOutput(
+  taskId: string,
+  userId: string,
+  sessionId: string,
+  messageId: string | null,
+  textContent: string,
+  parts: MessagePart[]
+) {
+  const supabase = getSupabaseClient();
+  await supabase.from('task_outputs').insert({
+    task_id: taskId,
+    user_id: userId,
+    session_id: sessionId,
+    message_id: messageId,
+    output_type: 'assistant_message',
+    text_content: textContent,
+    parts: parts || [],
+  });
+}
+
 // ========== 动态系统提示词 ==========
 
 async function getAgentSystemPrompt(): Promise<string> {
@@ -386,6 +449,18 @@ export async function POST(request: NextRequest) {
     // 会话确保（断点重续核心）
     const session = userId ? await ensureCreativeSession(userId, sessionId || null) : null;
     toolsService.setSessionId(session?.id || null);
+    const workerTaskId = userId && session?.id
+      ? await createWorkerTask(userId, session.id, {
+          message: typeof message === 'string' ? message : '',
+          hasAttachments: Array.isArray(attachments) ? attachments.length > 0 : false,
+          webSearchEnabled: !!webSearchEnabled,
+        })
+      : null;
+    if (workerTaskId && userId && session?.id) {
+      await appendTaskEvent(workerTaskId, userId, session.id, 'task_started', {
+        status: 'running',
+      });
+    }
 
     // ========== 双笔记本系统：加载记忆 ==========
     const supabase = getSupabaseClient();
@@ -508,13 +583,18 @@ export async function POST(request: NextRequest) {
         const sendEvent = createSSEWriter(controller, encoder);
         try {
           // 发送开始信号
-          sendEvent({ type: 'start', data: { sessionId: session?.id || null } });
+          sendEvent({ type: 'start', data: { sessionId: session?.id || null, taskId: workerTaskId } });
 
           let iterations = 0;
 
           while (iterations < MAX_ITERATIONS) {
             iterations++;
             console.log(`🔄 [Agent] 第 ${iterations} 次迭代`);
+            if (workerTaskId && userId && session?.id) {
+              const progress = Math.min(95, 3 + iterations * 8);
+              await updateWorkerTask(workerTaskId, { status: 'running', progress });
+              await appendTaskEvent(workerTaskId, userId, session.id, 'iteration', { iteration: iterations, progress });
+            }
 
             // 调用 LLM
             let assistantMessage = '';
@@ -571,6 +651,9 @@ export async function POST(request: NextRequest) {
               if (assistantMessageId && userId && iterationParts.length > 0) {
                 await updateConversationMessageParts(assistantMessageId, userId, iterationParts);
               }
+              if (workerTaskId && userId && session?.id) {
+                await saveTaskOutput(workerTaskId, userId, session.id, assistantMessageId, assistantMessage, iterationParts);
+              }
             };
 
             // ========== LLM 响应日志 ==========
@@ -612,6 +695,15 @@ export async function POST(request: NextRequest) {
                 sendEvent({ type: 'memory_candidate', data: memoryCandidate });
               }
               await persistAssistantParts();
+              if (workerTaskId && userId && session?.id) {
+                await updateWorkerTask(workerTaskId, {
+                  status: 'succeeded',
+                  progress: 100,
+                  completed_at: new Date().toISOString(),
+                  output_data: { finishedBy: 'text' },
+                });
+                await appendTaskEvent(workerTaskId, userId, session.id, 'task_succeeded', { progress: 100 });
+              }
               controller.close(); // 🔧 修复：必须关闭流，前端才能收到 done 事件
               break;
             }
@@ -752,6 +844,19 @@ export async function POST(request: NextRequest) {
               // 如果是 done 或 error，结束对话
               if (parsed.type === 'task_done' || parsed.type === 'error') {
                 await persistAssistantParts();
+                if (workerTaskId && userId && session?.id) {
+                  const success = parsed.type === 'task_done';
+                  await updateWorkerTask(workerTaskId, {
+                    status: success ? 'succeeded' : 'failed',
+                    progress: success ? 100 : 100,
+                    completed_at: new Date().toISOString(),
+                    error_message: success ? null : (parsed.content || '任务失败'),
+                    output_data: typeof parsed.data === 'object' && parsed.data ? parsed.data : {},
+                  });
+                  await appendTaskEvent(workerTaskId, userId, session.id, success ? 'task_succeeded' : 'task_failed', {
+                    reason: parsed.content || '',
+                  });
+                }
                 controller.close(); // 🔧 修复：必须关闭流
                 break;
               }
@@ -771,6 +876,15 @@ export async function POST(request: NextRequest) {
               // 检查是否应该结束
               if (iterations >= 3 && parsed.type === 'text') {
                 await persistAssistantParts();
+                if (workerTaskId && userId && session?.id) {
+                  await updateWorkerTask(workerTaskId, {
+                    status: 'succeeded',
+                    progress: 100,
+                    completed_at: new Date().toISOString(),
+                    output_data: { finishedBy: 'text_iteration_cap' },
+                  });
+                  await appendTaskEvent(workerTaskId, userId, session.id, 'task_succeeded', { progress: 100 });
+                }
                 controller.close(); // 🔧 修复：必须关闭流
                 break;
               }
@@ -781,6 +895,15 @@ export async function POST(request: NextRequest) {
             // 未知格式，发送原始文本
             sendEvent({ type: 'text', content: assistantMessage });
             await persistAssistantParts();
+            if (workerTaskId && userId && session?.id) {
+              await updateWorkerTask(workerTaskId, {
+                status: 'succeeded',
+                progress: 100,
+                completed_at: new Date().toISOString(),
+                output_data: { finishedBy: 'fallback' },
+              });
+              await appendTaskEvent(workerTaskId, userId, session.id, 'task_succeeded', { progress: 100 });
+            }
             controller.close(); // 🔧 修复：必须关闭流
             break;
           }
@@ -794,6 +917,17 @@ export async function POST(request: NextRequest) {
           
         } catch (error) {
           console.error('❌ [Agent] 错误:', error);
+          if (workerTaskId && userId && session?.id) {
+            await updateWorkerTask(workerTaskId, {
+              status: 'failed',
+              progress: 100,
+              completed_at: new Date().toISOString(),
+              error_message: error instanceof Error ? error.message : '发生错误',
+            });
+            await appendTaskEvent(workerTaskId, userId, session.id, 'task_failed', {
+              reason: error instanceof Error ? error.message : '发生错误',
+            });
+          }
           sendEvent({ type: 'error', content: error instanceof Error ? error.message : '发生错误' });
         }
         
