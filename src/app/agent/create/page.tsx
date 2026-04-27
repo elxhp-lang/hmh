@@ -130,7 +130,7 @@ function DebugPanel({ logs, onClear, onExport }: { logs: DebugLog[]; onClear: ()
     </div>
   );
 }
-import { RightSidebar, CreationOption, TemplateItem, HistoryItem, MaterialItem } from '@/components/agent/RightSidebar';
+import { RightSidebar, CreationOption, TemplateItem, HistoryItem, MaterialItem, WorkerTaskItem } from '@/components/agent/RightSidebar';
 
 // ========== 类型定义 ==========
 
@@ -590,6 +590,7 @@ export default function CreativeAgentPageNew() {
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [materials, setMaterials] = useState<MaterialItem[]>([]);
+  const [workerTasks, setWorkerTasks] = useState<WorkerTaskItem[]>([]);
 
   // 联网搜索状态
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
@@ -651,6 +652,21 @@ export default function CreativeAgentPageNew() {
       console.error('加载会话列表失败:', error);
     }
   }, [token]);
+
+  const loadWorkerTasks = useCallback(async () => {
+    if (!token) return;
+    try {
+      const qs = activeSessionId ? `?sessionId=${activeSessionId}` : '';
+      const res = await fetch(`/api/xiaohai/agent/tasks${qs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setWorkerTasks((data?.data?.tasks || []) as WorkerTaskItem[]);
+    } catch (error) {
+      console.error('加载后台任务失败:', error);
+    }
+  }, [token, activeSessionId]);
 
   // ========== 双笔记本系统：加载历史消息 ==========
   useEffect(() => {
@@ -929,6 +945,15 @@ export default function CreativeAgentPageNew() {
     fetchData();
   }, [user?.user_id, token, activeSessionId]);
 
+  useEffect(() => {
+    if (!token || !user?.user_id) return;
+    loadWorkerTasks();
+    const timer = setInterval(() => {
+      loadWorkerTasks();
+    }, 8000);
+    return () => clearInterval(timer);
+  }, [token, user?.user_id, loadWorkerTasks]);
+
   // ========== 方案一：视频完成通知轮询 ==========
   useEffect(() => {
     if (!user?.user_id || !token) return;
@@ -985,6 +1010,23 @@ export default function CreativeAgentPageNew() {
     // 可以在这里添加跳转到素材历史页面的逻辑
     window.location.href = '/material/history';
   };
+
+  const handleTaskAction = useCallback(async (action: 'retry' | 'cancel', taskId: string) => {
+    if (!token || !taskId) return;
+    try {
+      await fetch('/api/xiaohai/agent/tasks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action, taskId }),
+      });
+      await loadWorkerTasks();
+    } catch (error) {
+      console.error(`${action} task failed`, error);
+    }
+  }, [token, loadWorkerTasks]);
   
   useEffect(() => {
     scrollToBottom();
@@ -1728,6 +1770,12 @@ export default function CreativeAgentPageNew() {
             templates={templates}
             history={history}
             materials={materials}
+            tasks={workerTasks}
+            onTaskRetry={(taskId) => handleTaskAction('retry', taskId)}
+            onTaskCancel={(taskId) => handleTaskAction('cancel', taskId)}
+            onTaskOpen={(taskId) => {
+              setSessionQuery(taskId.slice(0, 8));
+            }}
           />
         </div>
       </div>

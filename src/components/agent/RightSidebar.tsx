@@ -22,7 +22,8 @@ import {
   ChevronRight,
   LayoutGrid,
   Palette,
-  Wand2
+  Wand2,
+  ListChecks
 } from 'lucide-react';
 
 // ========== 类型定义 ==========
@@ -56,6 +57,16 @@ export interface MaterialItem {
   createdAt: Date;
 }
 
+export interface WorkerTaskItem {
+  id: string;
+  task_type?: string;
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  progress?: number;
+  error_message?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface RightSidebarProps {
   className?: string;
   creationOptions?: CreationOption;
@@ -67,6 +78,10 @@ export interface RightSidebarProps {
   materials?: MaterialItem[];
   onMaterialDelete?: (id: string) => void;
   onMaterialEdit?: (id: string) => void;
+  tasks?: WorkerTaskItem[];
+  onTaskRetry?: (taskId: string) => void;
+  onTaskCancel?: (taskId: string) => void;
+  onTaskOpen?: (taskId: string) => void;
 }
 
 // ========== 预设标签组件 ==========
@@ -393,6 +408,65 @@ function MaterialManager({ materials, onDelete, onEdit }: MaterialManagerProps) 
   );
 }
 
+function TaskRail({
+  tasks,
+  onRetry,
+  onCancel,
+  onOpen,
+}: {
+  tasks: WorkerTaskItem[];
+  onRetry: (taskId: string) => void;
+  onCancel: (taskId: string) => void;
+  onOpen: (taskId: string) => void;
+}) {
+  if (!tasks.length) {
+    return (
+      <div className="text-center py-8 text-sm text-muted-foreground">
+        <ListChecks className="w-8 h-8 mx-auto mb-2 opacity-50" />
+        <p>暂无任务记录</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {tasks.slice(0, 12).map((task) => (
+        <div key={task.id} className="rounded-lg border p-2 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-medium truncate">{task.task_type || 'creative_chat'}</p>
+            <Badge variant={task.status === 'failed' ? 'destructive' : 'outline'} className="text-[10px]">
+              {task.status}
+            </Badge>
+          </div>
+          <div className="h-1.5 w-full rounded bg-muted overflow-hidden">
+            <div className="h-full bg-primary transition-all" style={{ width: `${Math.max(0, Math.min(task.progress || 0, 100))}%` }} />
+          </div>
+          {task.error_message ? (
+            <p className="text-[11px] text-destructive line-clamp-2">{task.error_message}</p>
+          ) : (
+            <p className="text-[11px] text-muted-foreground line-clamp-1">{task.id.slice(0, 12)}</p>
+          )}
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => onOpen(task.id)}>
+              查看
+            </Button>
+            {task.status === 'failed' || task.status === 'cancelled' ? (
+              <Button size="sm" variant="secondary" className="h-6 text-[10px] px-2" onClick={() => onRetry(task.id)}>
+                重试
+              </Button>
+            ) : null}
+            {task.status === 'queued' || task.status === 'running' ? (
+              <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={() => onCancel(task.id)}>
+                取消
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ========== 主组件 ==========
 
 export function RightSidebar({
@@ -405,7 +479,11 @@ export function RightSidebar({
   onHistorySelect,
   materials = [],
   onMaterialDelete,
-  onMaterialEdit
+  onMaterialEdit,
+  tasks = [],
+  onTaskRetry,
+  onTaskCancel,
+  onTaskOpen,
 }: RightSidebarProps) {
   const [options, setOptions] = useState<CreationOption>(
     creationOptions || {
@@ -423,7 +501,7 @@ export function RightSidebar({
   return (
     <div className={cn('flex flex-col h-full', className)}>
       <Tabs defaultValue="options" className="flex-1 flex flex-col">
-        <TabsList className="grid grid-cols-4 w-full">
+        <TabsList className="grid grid-cols-5 w-full">
           <TabsTrigger value="options" className="text-xs">
             <Wand2 className="w-4 h-4" />
           </TabsTrigger>
@@ -435,6 +513,9 @@ export function RightSidebar({
           </TabsTrigger>
           <TabsTrigger value="materials" className="text-xs">
             <FolderOpen className="w-4 h-4" />
+          </TabsTrigger>
+          <TabsTrigger value="tasks" className="text-xs">
+            <ListChecks className="w-4 h-4" />
           </TabsTrigger>
         </TabsList>
         
@@ -526,6 +607,22 @@ export function RightSidebar({
                   materials={materials}
                   onDelete={onMaterialDelete || (() => {})}
                   onEdit={onMaterialEdit || (() => {})}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="tasks" className="m-0">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">后台任务</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <TaskRail
+                  tasks={tasks}
+                  onRetry={onTaskRetry || (() => {})}
+                  onCancel={onTaskCancel || (() => {})}
+                  onOpen={onTaskOpen || (() => {})}
                 />
               </CardContent>
             </Card>
