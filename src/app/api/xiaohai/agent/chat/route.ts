@@ -72,7 +72,8 @@ async function saveConversationMessage(
       .eq('id', sessionId)
       .eq('user_id', userId)
       .single();
-    const nextCount = (session?.message_count || 0) + 1;
+    const sessionData = (session || null) as { message_count?: number } | null;
+    const nextCount = (sessionData?.message_count || 0) + 1;
     await supabase
       .from('agent_sessions')
       .update({
@@ -446,6 +447,8 @@ export async function POST(request: NextRequest) {
 
             // 调用 LLM
             let assistantMessage = '';
+            let streamedVisibleText = '';
+            let lastStreamFlushAt = Date.now();
             
             const response = await client.stream(messages, {
               model: 'doubao-seed-2-0-pro-260215',
@@ -456,7 +459,25 @@ export async function POST(request: NextRequest) {
               const content = chunk.content || '';
               if (content) {
                 assistantMessage += content;
+
+                // 对用户可见的增量流式：过滤工具调用标记，降低前端等待感
+                if (!assistantMessage.includes('<|FunctionCallBegin|>')) {
+                  streamedVisibleText += content
+                    .replace(/<\|FunctionCallBegin\|>/g, '')
+                    .replace(/<\|FunctionCallEnd\|>/g, '');
+                  const now = Date.now();
+                  if (streamedVisibleText.length >= 24 || now - lastStreamFlushAt >= 80) {
+                    sendEvent({ type: 'content', content: streamedVisibleText });
+                    streamedVisibleText = '';
+                    lastStreamFlushAt = now;
+                  }
+                }
               }
+            }
+
+            if (streamedVisibleText.trim()) {
+              sendEvent({ type: 'content', content: streamedVisibleText });
+              streamedVisibleText = '';
             }
 
             if (!assistantMessage.trim()) {

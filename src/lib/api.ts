@@ -214,7 +214,9 @@ export async function streamAgentRequest(
     // 发送 done 事件
     onEvent({ type: 'done' });
   } catch (error) {
-    onError?.(error instanceof Error ? error : new Error('未知错误'));
+    const err = error instanceof Error ? error : new Error('未知错误');
+    onError?.(err);
+    throw err;
   }
 }
 

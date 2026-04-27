@@ -527,6 +527,7 @@ export default function CreativeAgentPageNew() {
   const conversationHistory = useRef<Array<{ role: string; content: string }>>([]);
   const streamingMessageIdRef = useRef<string | null>(null);
   const historyRequestSeq = useRef(0);
+  const lastStreamUiFlushRef = useRef(0);
   
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -911,24 +912,31 @@ export default function CreativeAgentPageNew() {
             case 'content':
             case 'text':
               currentText += event.content || '';
-              setMessages(prev => {
-                const streamingId = streamingMessageIdRef.current;
-                const exists = streamingId ? prev.some((m) => m.id === streamingId) : false;
-                if (exists && streamingId) {
-                  return prev.map((msg) =>
-                    msg.id === streamingId ? { ...msg, content: currentText } : msg
-                  );
-                } else {
-                  const nextId = streamingId || generateId('stream');
-                  streamingMessageIdRef.current = nextId;
-                  return [...prev, {
-                    id: nextId,
-                    type: 'assistant' as const,
-                    content: currentText,
-                    timestamp: new Date()
-                  }];
+              {
+                const now = Date.now();
+                if (now - lastStreamUiFlushRef.current < 50 && event.type !== 'text') {
+                  break;
                 }
-              });
+                lastStreamUiFlushRef.current = now;
+                setMessages(prev => {
+                  const streamingId = streamingMessageIdRef.current;
+                  const exists = streamingId ? prev.some((m) => m.id === streamingId) : false;
+                  if (exists && streamingId) {
+                    return prev.map((msg) =>
+                      msg.id === streamingId ? { ...msg, content: currentText } : msg
+                    );
+                  } else {
+                    const nextId = streamingId || generateId('stream');
+                    streamingMessageIdRef.current = nextId;
+                    return [...prev, {
+                      id: nextId,
+                      type: 'assistant' as const,
+                      content: currentText,
+                      timestamp: new Date()
+                    }];
+                  }
+                });
+              }
               break;
               
             case 'tool_result':
@@ -1024,6 +1032,20 @@ export default function CreativeAgentPageNew() {
               loadSessions({ preferredSessionId: activeSessionId });
               break;
           }
+        },
+        (error: Error) => {
+          addDebugLog('error', 'SSE 流错误', { message: error.message });
+          setIsLoading(false);
+          streamingMessageIdRef.current = null;
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: generateId('msg'),
+              type: 'system',
+              content: '网络波动或服务超时，已自动停止本次请求。你可以重试。',
+              timestamp: new Date(),
+            },
+          ]);
         }
       );
     } catch (error) {
