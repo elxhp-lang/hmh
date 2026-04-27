@@ -38,7 +38,7 @@ create table if not exists public.task_outputs (
   task_id uuid not null references public.worker_tasks(id) on delete cascade,
   user_id text not null,
   session_id uuid null references public.agent_sessions(id) on delete set null,
-  message_id uuid null references public.agent_conversation_messages(id) on delete set null,
+  message_id text null references public.agent_conversation_messages(id) on delete set null,
   output_type text not null default 'assistant_message',
   parts jsonb not null default '[]'::jsonb,
   text_content text null,
