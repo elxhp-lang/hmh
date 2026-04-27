@@ -74,87 +74,100 @@ export async function GET(request: NextRequest) {
 
     // ===== 同时查询 videos 表和 learning_library 表 =====
     
-    // 1. 查询 videos 表
-    let videoQuery = client
-      .from('videos')
-      .select(`
-        id,
-        user_id,
-        session_id,
-        task_id,
-        prompt,
-        script,
-        copywriting,
-        tags,
-        tag_source,
-        auto_tag_status,
-        category,
-        reference_images,
-        generate_audio,
-        watermark,
-        web_search,
-        source_video_id,
-        source_task_id,
-        is_remix,
-        task_type,
-        status,
-        tos_key,
-        result_url,
-        ratio,
-        duration,
-        cost,
-        error_message,
-        created_at,
-        model
-      `)
-      .order('created_at', { ascending: false });
+    const baseVideoSelect = `
+      id,
+      user_id,
+      task_id,
+      prompt,
+      script,
+      copywriting,
+      tags,
+      tag_source,
+      auto_tag_status,
+      category,
+      reference_images,
+      generate_audio,
+      watermark,
+      web_search,
+      source_video_id,
+      source_task_id,
+      is_remix,
+      task_type,
+      status,
+      tos_key,
+      result_url,
+      ratio,
+      duration,
+      cost,
+      error_message,
+      created_at,
+      model
+    `;
 
-    // 应用用户筛选
-    if (queryUserIds.length > 0) {
-      videoQuery = videoQuery.in('user_id', queryUserIds);
-    }
+    const buildVideoQuery = (withSessionColumn: boolean, withSessionFilter: boolean) => {
+      let query = client
+        .from('videos')
+        .select(withSessionColumn ? `session_id, ${baseVideoSelect}` : baseVideoSelect)
+        .order('created_at', { ascending: false });
 
-    // 应用状态筛选
-    if (status && ['pending', 'processing', 'completed', 'failed'].includes(status)) {
-      videoQuery = videoQuery.eq('status', status);
-    }
+      // 应用用户筛选
+      if (queryUserIds.length > 0) {
+        query = query.in('user_id', queryUserIds);
+      }
 
-    // 应用 category 筛选
-    if (category) {
-      videoQuery = videoQuery.eq('category', category);
-    }
+      // 应用状态筛选
+      if (status && ['pending', 'processing', 'completed', 'failed'].includes(status)) {
+        query = query.eq('status', status);
+      }
 
-    // 应用关键词搜索
-    if (keyword) {
-      videoQuery = videoQuery.or(`prompt.ilike.%${keyword}%,script.ilike.%${keyword}%,copywriting.ilike.%${keyword}%`);
-    }
+      // 应用 category 筛选
+      if (category) {
+        query = query.eq('category', category);
+      }
 
-    // 标签精确筛选（jsonb 数组包含）
-    if (tag) {
-      videoQuery = videoQuery.contains('tags', [tag]);
-    }
+      // 应用关键词搜索
+      if (keyword) {
+        query = query.or(`prompt.ilike.%${keyword}%,script.ilike.%${keyword}%,copywriting.ilike.%${keyword}%`);
+      }
 
-    // 版本筛选
-    if (version === 'remix') {
-      videoQuery = videoQuery.eq('is_remix', true);
-    } else if (version === 'original') {
-      videoQuery = videoQuery.or('is_remix.is.null,is_remix.eq.false');
-    }
+      // 标签精确筛选（jsonb 数组包含）
+      if (tag) {
+        query = query.contains('tags', [tag]);
+      }
 
-    if (sourceVideoId) {
-      videoQuery = videoQuery.eq('source_video_id', sourceVideoId);
-    }
+      // 版本筛选
+      if (version === 'remix') {
+        query = query.eq('is_remix', true);
+      } else if (version === 'original') {
+        query = query.or('is_remix.is.null,is_remix.eq.false');
+      }
 
-    if (targetVideoId) {
-      videoQuery = videoQuery.eq('id', targetVideoId);
-    }
+      if (sourceVideoId) {
+        query = query.eq('source_video_id', sourceVideoId);
+      }
 
-    if (sessionId) {
-      videoQuery = videoQuery.eq('session_id', sessionId);
-    }
+      if (targetVideoId) {
+        query = query.eq('id', targetVideoId);
+      }
+
+      // session_id 是可选的细粒度过滤：字段不存在时会自动降级
+      if (sessionId && withSessionFilter) {
+        query = query.eq('session_id', sessionId);
+      }
+
+      return query;
+    };
 
     // 不分页，获取所有数据（后续合并后再分页）
-    const { data: videosData, error: videosError } = await videoQuery;
+    let { data: videosData, error: videosError } = await buildVideoQuery(true, true);
+
+    // 兼容旧库：videos 没有 session_id 列时，自动降级为 user_id 维度查询
+    if (videosError && /session_id/i.test(videosError.message || '')) {
+      console.warn('videos.session_id 不存在，降级为不带 session 过滤的查询');
+      const fallback = await buildVideoQuery(false, false);
+      videosData = fallback.data;
+      videosError = fallback.error;
+    }
 
     if (videosError) {
       throw new Error(`查询 videos 表失败: ${videosError.message}`);

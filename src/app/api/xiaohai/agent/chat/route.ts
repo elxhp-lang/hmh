@@ -238,76 +238,6 @@ function extractMemoryCandidate(userMessageContent: string): MemoryCandidate | n
   };
 }
 
-function splitScriptSections(content: string): string[] {
-  const normalized = content.trim();
-  if (!normalized) return [];
-
-  const sectionRegex = /(?:^|\n)(?:方案[一二三四五六七八九十0-9]+|脚本[一二三四五六七八九十0-9]+|版本[一二三四五六七八九十0-9]+|选项[一二三四五六七八九十0-9]+)\s*[:：]/g;
-  const matches = [...normalized.matchAll(sectionRegex)];
-
-  if (matches.length < 2) {
-    return [normalized];
-  }
-
-  const sections: string[] = [];
-  for (let i = 0; i < matches.length; i++) {
-    const start = matches[i].index ?? 0;
-    const end = i + 1 < matches.length ? (matches[i + 1].index ?? normalized.length) : normalized.length;
-    const section = normalized.slice(start, end).trim();
-    if (section) sections.push(section);
-  }
-  return sections.length > 0 ? sections : [normalized];
-}
-
-function tryExtractScriptOptions(content: string): ExtractedScriptOption[] | null {
-  const text = content.trim();
-  if (!text) return null;
-
-  if (text.length < 80) {
-    return null;
-  }
-
-  const indicatorCount =
-    text.match(/脚本|分镜|镜头|旁白|口播|场景|时长|画面|台词|字幕|机位/g)?.length || 0;
-  const lines = text
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const structuredLineCount = lines.filter((line) =>
-    /^(\d+[\.\、\s]|镜头\s*\d+|场景\s*\d+|shot\s*\d+)/i.test(line) ||
-    /(镜头|画面|旁白|口播|台词|字幕)\s*[:：]/.test(line) ||
-    /\|/.test(line)
-  ).length;
-  const tableLikeCount = lines.filter((line) => /\|/.test(line)).length;
-  const hasMultiSection = /(?:^|\n)(?:方案|脚本|版本|选项)[一二三四五六七八九十0-9]*\s*[:：]/.test(text);
-  const isSingleParagraph = lines.length <= 2 && !text.includes('|');
-
-  const isLikelyScript =
-    (indicatorCount >= 3 && structuredLineCount >= 2) ||
-    tableLikeCount >= 3 ||
-    (hasMultiSection && indicatorCount >= 2);
-
-  if (!isLikelyScript || (isSingleParagraph && structuredLineCount === 0)) {
-    return null;
-  }
-
-  const sections = splitScriptSections(text)
-    .map((section) => section.trim())
-    .filter(Boolean)
-    .slice(0, 5);
-  const options = sections.map((section, idx) => {
-    const firstLine = section.split('\n').find(line => line.trim())?.trim() || `脚本方案 ${idx + 1}`;
-    return {
-      id: `script_text_${idx + 1}`,
-      title: firstLine.length > 40 ? `脚本方案 ${idx + 1}` : firstLine,
-      description: `基于模型文本输出自动识别的脚本方案 ${idx + 1}`,
-      content: section,
-    };
-  });
-
-  return options.length > 0 ? options : null;
-}
-
 function buildScriptTablePart(
   scripts: ExtractedScriptOption[]
 ): { type: 'table'; title: string; columns: string[]; rows: string[][] } | null {
@@ -315,7 +245,7 @@ function buildScriptTablePart(
   const rows = scripts.slice(0, 12).map((item) => [
     item.title || '脚本方案',
     item.description || '',
-    (item.content || '').slice(0, 220),
+    item.content || '',
   ]);
   return {
     type: 'table',
@@ -677,20 +607,6 @@ export async function POST(request: NextRequest) {
               if (memoryCandidate) {
                 sendEvent({ type: 'memory_candidate', data: memoryCandidate });
               }
-
-              const extractedScripts = tryExtractScriptOptions(assistantMessage);
-              if (extractedScripts) {
-                const scriptTablePart = buildScriptTablePart(extractedScripts);
-                if (scriptTablePart) {
-                  emitPart(scriptTablePart, 'text_extractor');
-                }
-                sendEvent({
-                  type: 'script_options',
-                  content: '识别到脚本内容，已结构化展示',
-                  data: extractedScripts,
-                  source: 'text_extractor'
-                });
-              }
               await persistAssistantParts();
               controller.close(); // 🔧 修复：必须关闭流，前端才能收到 done 事件
               break;
@@ -789,6 +705,12 @@ export async function POST(request: NextRequest) {
                 // 发送结果
                 sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(result) });
                 emitPart(buildToolResultCardPart(toolName, result), 'tool_result');
+                if (toolName === 'generate_script' && result?.success) {
+                  const scriptTablePart = buildScriptTablePartFromUnknown(result.data);
+                  if (scriptTablePart) {
+                    emitPart(scriptTablePart, 'tool_generate_script');
+                  }
+                }
 
                 // 添加反馈
                 messages.push({
