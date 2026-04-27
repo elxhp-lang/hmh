@@ -74,99 +74,95 @@ export async function GET(request: NextRequest) {
 
     // ===== 同时查询 videos 表和 learning_library 表 =====
     
-    const baseVideoSelect = `
-      id,
-      user_id,
-      task_id,
-      prompt,
-      script,
-      copywriting,
-      tags,
-      tag_source,
-      auto_tag_status,
-      category,
-      reference_images,
-      generate_audio,
-      watermark,
-      web_search,
-      source_video_id,
-      source_task_id,
-      is_remix,
-      task_type,
-      status,
-      tos_key,
-      result_url,
-      ratio,
-      duration,
-      cost,
-      error_message,
-      created_at,
-      model
-    `;
+    const optionalColumns = [
+      'task_id',
+      'prompt',
+      'session_id',
+      'script',
+      'copywriting',
+      'tags',
+      'tag_source',
+      'auto_tag_status',
+      'category',
+      'reference_images',
+      'generate_audio',
+      'watermark',
+      'web_search',
+      'source_video_id',
+      'source_task_id',
+      'is_remix',
+      'task_type',
+      'tos_key',
+      'result_url',
+      'ratio',
+      'duration',
+      'cost',
+      'error_message',
+      'model',
+    ];
+    const requiredColumns = ['id', 'user_id', 'status', 'created_at'];
+    let availableOptional = new Set(optionalColumns);
+    let videosData: any[] | null = null;
+    let videosError: any = null;
+    let attempts = 0;
 
-    const buildVideoQuery = (withSessionColumn: boolean, withSessionFilter: boolean) => {
+    const buildVideoQuery = (availableColumns: Set<string>) => {
+      const selectColumns = [...requiredColumns, ...optionalColumns.filter((col) => availableColumns.has(col))];
       let query = client
         .from('videos')
-        .select(withSessionColumn ? `session_id, ${baseVideoSelect}` : baseVideoSelect)
+        .select(selectColumns.join(','))
         .order('created_at', { ascending: false });
 
-      // 应用用户筛选
       if (queryUserIds.length > 0) {
         query = query.in('user_id', queryUserIds);
       }
-
-      // 应用状态筛选
       if (status && ['pending', 'processing', 'completed', 'failed'].includes(status)) {
         query = query.eq('status', status);
       }
-
-      // 应用 category 筛选
-      if (category) {
+      if (category && availableColumns.has('category')) {
         query = query.eq('category', category);
       }
-
-      // 应用关键词搜索
       if (keyword) {
-        query = query.or(`prompt.ilike.%${keyword}%,script.ilike.%${keyword}%,copywriting.ilike.%${keyword}%`);
+        const keywordCols = ['prompt', 'script', 'copywriting'].filter((col) => col === 'prompt' || availableColumns.has(col));
+        if (keywordCols.length > 0) {
+          query = query.or(keywordCols.map((col) => `${col}.ilike.%${keyword}%`).join(','));
+        }
       }
-
-      // 标签精确筛选（jsonb 数组包含）
-      if (tag) {
+      if (tag && availableColumns.has('tags')) {
         query = query.contains('tags', [tag]);
       }
-
-      // 版本筛选
-      if (version === 'remix') {
+      if (version === 'remix' && availableColumns.has('is_remix')) {
         query = query.eq('is_remix', true);
-      } else if (version === 'original') {
+      } else if (version === 'original' && availableColumns.has('is_remix')) {
         query = query.or('is_remix.is.null,is_remix.eq.false');
       }
-
-      if (sourceVideoId) {
+      if (sourceVideoId && availableColumns.has('source_video_id')) {
         query = query.eq('source_video_id', sourceVideoId);
       }
-
       if (targetVideoId) {
         query = query.eq('id', targetVideoId);
       }
-
-      // session_id 是可选的细粒度过滤：字段不存在时会自动降级
-      if (sessionId && withSessionFilter) {
+      if (sessionId && availableColumns.has('session_id')) {
         query = query.eq('session_id', sessionId);
       }
-
       return query;
     };
 
-    // 不分页，获取所有数据（后续合并后再分页）
-    let { data: videosData, error: videosError } = await buildVideoQuery(true, true);
+    while (attempts < 12) {
+      attempts += 1;
+      const result = await buildVideoQuery(availableOptional);
+      videosData = result.data;
+      videosError = result.error;
+      if (!videosError) break;
 
-    // 兼容旧库：videos 没有 session_id 列时，自动降级为 user_id 维度查询
-    if (videosError && /session_id/i.test(videosError.message || '')) {
-      console.warn('videos.session_id 不存在，降级为不带 session 过滤的查询');
-      const fallback = await buildVideoQuery(false, false);
-      videosData = fallback.data;
-      videosError = fallback.error;
+      const message = String(videosError.message || '');
+      const missingColumnMatch = message.match(/column\s+"?([a-zA-Z0-9_]+)"?\s+does not exist/i);
+      const missingColumn = missingColumnMatch?.[1];
+      if (!missingColumn || !availableOptional.has(missingColumn)) {
+        break;
+      }
+      console.warn(`videos.${missingColumn} 不存在，自动降级并重试`);
+      availableOptional.delete(missingColumn);
     }
 
     if (videosError) {

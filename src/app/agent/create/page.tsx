@@ -486,6 +486,9 @@ export default function CreativeAgentPageNew() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [sessionLoading, setSessionLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyReloadSeed, setHistoryReloadSeed] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [memoryActionLoading, setMemoryActionLoading] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
@@ -566,6 +569,8 @@ export default function CreativeAgentPageNew() {
   const streamingMessageIdRef = useRef<string | null>(null);
   const historyRequestSeq = useRef(0);
   const lastStreamUiFlushRef = useRef(0);
+  const historyAbortRef = useRef<AbortController | null>(null);
+  const activeSessionIdRef = useRef<string | null>(null);
   
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
@@ -574,6 +579,10 @@ export default function CreativeAgentPageNew() {
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
 
   const loadSessions = useCallback(async (options?: { preferredSessionId?: string | null }) => {
     if (!token) return;
@@ -604,28 +613,35 @@ export default function CreativeAgentPageNew() {
     
     const fetchHistory = async () => {
       const requestId = ++historyRequestSeq.current;
+      setHistoryLoading(true);
+      setHistoryError(null);
+      historyAbortRef.current?.abort();
+      const controller = new AbortController();
+      historyAbortRef.current = controller;
+      const requestedSessionId = activeSessionId;
       try {
         addDebugLog('api', '加载对话历史开始', { userId: user.user_id, activeSessionId });
         const qs = `?sessionId=${activeSessionId}`;
         const historyRes = await fetch(`/api/xiaohai/agent/chat${qs}`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
         });
         
         if (historyRes.ok) {
           const historyData = await historyRes.json();
           if (requestId !== historyRequestSeq.current) return;
+          if (requestedSessionId !== activeSessionIdRef.current) return;
           if (historyData.success && historyData.data?.conversationHistory) {
             const msgCount = historyData.data.conversationHistory.length;
             addDebugLog('api', '加载对话历史成功', { count: msgCount });
             console.log(`📔 [笔记本1号] 加载了 ${msgCount} 条历史消息`);
             
-            // 🔧 修复重复卡片问题：基于 content + created_at 去重
+            // 优先按 id 去重，避免同内容消息误伤
             const seenKeys = new Set<string>();
             const uniqueMessages: Message[] = [];
             
             for (const msg of historyData.data.conversationHistory) {
-              // 使用 content + created_at 作为唯一键
-              const key = `${msg.content}_${msg.created_at}`;
+              const key = String(msg.id || `${msg.created_at}_${msg.role}_${msg.content}`);
               if (!seenKeys.has(key)) {
                 seenKeys.add(key);
                 uniqueMessages.push({
@@ -660,18 +676,29 @@ export default function CreativeAgentPageNew() {
             addDebugLog('state', '更新 messages 状态', { count: historyMessages.length });
           } else {
             addDebugLog('api', '加载对话历史失败：无数据', historyData);
+            setHistoryError('该会话历史加载失败，请重试。');
           }
         } else {
           addDebugLog('error', '加载对话历史失败：HTTP错误', { status: historyRes.status });
+          setHistoryError('加载历史失败，请检查网络后重试。');
         }
       } catch (error) {
+        if (controller.signal.aborted) return;
         console.error('📔 [笔记本1号] 加载历史消息失败:', error);
         addDebugLog('error', '加载历史消息异常', { error: String(error) });
+        setHistoryError('加载历史失败，请重试。');
+      } finally {
+        if (requestId === historyRequestSeq.current) {
+          setHistoryLoading(false);
+        }
       }
     };
     
     fetchHistory();
-  }, [user?.user_id, token, activeSessionId, sessionReady]);
+    return () => {
+      historyAbortRef.current?.abort();
+    };
+  }, [user?.user_id, token, activeSessionId, sessionReady, historyReloadSeed]);
 
   useEffect(() => {
     if (!user?.user_id || !token) return;
@@ -1313,8 +1340,7 @@ export default function CreativeAgentPageNew() {
                 onValueChange={(value) => {
                   if (isLoading || sessionLoading) return;
                   setActiveSessionId(value);
-                  setMessages([]);
-                  conversationHistory.current = [];
+                  setHistoryError(null);
                 }}
               >
                 <SelectTrigger className="w-[240px] h-8">
@@ -1345,6 +1371,28 @@ export default function CreativeAgentPageNew() {
           
           {/* 消息区域 - min-h-0 关键！允许收缩 */}
           <ScrollArea className="min-h-0 flex-1 px-6 py-5">
+            {historyLoading && (
+              <div className="mb-3 text-xs text-muted-foreground inline-flex items-center gap-2">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                正在加载该会话历史...
+              </div>
+            )}
+            {historyError && (
+              <div className="mb-3 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2 inline-flex items-center gap-3">
+                <span>{historyError}</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 px-2 text-xs"
+                  onClick={() => {
+                    if (!activeSessionId) return;
+                    setHistoryReloadSeed((prev) => prev + 1);
+                  }}
+                >
+                  重试
+                </Button>
+              </div>
+            )}
             {messages.length === 0 ? (
               <WelcomePage onQuickStart={handleQuickStart} />
             ) : (
