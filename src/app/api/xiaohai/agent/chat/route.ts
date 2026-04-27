@@ -263,15 +263,38 @@ function tryExtractScriptOptions(content: string): ExtractedScriptOption[] | nul
   const text = content.trim();
   if (!text) return null;
 
-  const hasScriptSignal =
-    /脚本|分镜|镜头|旁白|口播|场景|时长|画面|文案/.test(text) &&
-    text.length >= 80;
-
-  if (!hasScriptSignal) {
+  if (text.length < 80) {
     return null;
   }
 
-  const sections = splitScriptSections(text).slice(0, 5);
+  const indicatorCount =
+    text.match(/脚本|分镜|镜头|旁白|口播|场景|时长|画面|台词|字幕|机位/g)?.length || 0;
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const structuredLineCount = lines.filter((line) =>
+    /^(\d+[\.\、\s]|镜头\s*\d+|场景\s*\d+|shot\s*\d+)/i.test(line) ||
+    /(镜头|画面|旁白|口播|台词|字幕)\s*[:：]/.test(line) ||
+    /\|/.test(line)
+  ).length;
+  const tableLikeCount = lines.filter((line) => /\|/.test(line)).length;
+  const hasMultiSection = /(?:^|\n)(?:方案|脚本|版本|选项)[一二三四五六七八九十0-9]*\s*[:：]/.test(text);
+  const isSingleParagraph = lines.length <= 2 && !text.includes('|');
+
+  const isLikelyScript =
+    (indicatorCount >= 3 && structuredLineCount >= 2) ||
+    tableLikeCount >= 3 ||
+    (hasMultiSection && indicatorCount >= 2);
+
+  if (!isLikelyScript || (isSingleParagraph && structuredLineCount === 0)) {
+    return null;
+  }
+
+  const sections = splitScriptSections(text)
+    .map((section) => section.trim())
+    .filter(Boolean)
+    .slice(0, 5);
   const options = sections.map((section, idx) => {
     const firstLine = section.split('\n').find(line => line.trim())?.trim() || `脚本方案 ${idx + 1}`;
     return {
