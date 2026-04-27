@@ -93,13 +93,13 @@ export function RichMessageContent({ content, parts = [] }: RichMessageContentPr
       {parts.map((part, pIdx) => {
         if (part.type === 'table') {
           return (
-            <div key={`part_table_${pIdx}`} className="overflow-x-auto rounded-lg border bg-background/70">
-              {part.title && <div className="px-3 py-2 text-xs text-muted-foreground border-b">{part.title}</div>}
+            <div key={`part_table_${pIdx}`} className="overflow-x-auto rounded-xl border bg-background/80 shadow-sm">
+              {part.title && <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b bg-muted/30">{part.title}</div>}
               <table className="w-full text-sm">
                 <thead className="bg-muted/60">
                   <tr>
                     {part.columns.map((header, hIdx) => (
-                      <th key={`ph_${pIdx}_${hIdx}`} className="px-3 py-2 text-left font-medium whitespace-nowrap">
+                      <th key={`ph_${pIdx}_${hIdx}`} className="px-3 py-2.5 text-left font-semibold whitespace-nowrap text-foreground/90">
                         {header}
                       </th>
                     ))}
@@ -107,9 +107,9 @@ export function RichMessageContent({ content, parts = [] }: RichMessageContentPr
                 </thead>
                 <tbody>
                   {part.rows.map((row, rIdx) => (
-                    <tr key={`pr_${pIdx}_${rIdx}`} className="border-t">
+                    <tr key={`pr_${pIdx}_${rIdx}`} className="border-t odd:bg-background even:bg-muted/20">
                       {row.map((cell, cIdx) => (
-                        <td key={`pc_${pIdx}_${rIdx}_${cIdx}`} className="px-3 py-2 align-top whitespace-pre-wrap">
+                        <td key={`pc_${pIdx}_${rIdx}_${cIdx}`} className="px-3 py-2.5 align-top whitespace-pre-wrap leading-relaxed">
                           {cell}
                         </td>
                       ))}
@@ -188,12 +188,12 @@ export function RichMessageContent({ content, parts = [] }: RichMessageContentPr
         const table = tryParseTable(block);
         if (table) {
           return (
-            <div key={`table_${idx}`} className="overflow-x-auto rounded-lg border bg-background/70">
+            <div key={`table_${idx}`} className="overflow-x-auto rounded-xl border bg-background/80 shadow-sm">
               <table className="w-full text-sm">
                 <thead className="bg-muted/60">
                   <tr>
                     {table.headers.map((header, hIdx) => (
-                      <th key={`h_${hIdx}`} className="px-3 py-2 text-left font-medium whitespace-nowrap">
+                      <th key={`h_${hIdx}`} className="px-3 py-2.5 text-left font-semibold whitespace-nowrap text-foreground/90">
                         {header}
                       </th>
                     ))}
@@ -201,9 +201,9 @@ export function RichMessageContent({ content, parts = [] }: RichMessageContentPr
                 </thead>
                 <tbody>
                   {table.rows.map((row, rIdx) => (
-                    <tr key={`r_${rIdx}`} className="border-t">
+                    <tr key={`r_${rIdx}`} className="border-t odd:bg-background even:bg-muted/20">
                       {row.map((cell, cIdx) => (
-                        <td key={`c_${rIdx}_${cIdx}`} className="px-3 py-2 align-top whitespace-pre-wrap">
+                        <td key={`c_${rIdx}_${cIdx}`} className="px-3 py-2.5 align-top whitespace-pre-wrap leading-relaxed">
                           {cell}
                         </td>
                       ))}
@@ -287,8 +287,9 @@ export function RichMessageContent({ content, parts = [] }: RichMessageContentPr
                 href={link.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs underline text-primary break-all"
+                className="block rounded-lg border bg-background/70 px-3 py-2 text-xs text-primary break-all hover:bg-muted/30 transition-colors"
               >
+                <span className="text-[10px] text-muted-foreground mr-2">链接</span>
                 {link.url}
               </a>
             );

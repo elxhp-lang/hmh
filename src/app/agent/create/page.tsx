@@ -326,6 +326,7 @@ interface CreativeSession {
 }
 
 type SessionGroupKey = 'today' | 'week' | 'earlier';
+type SessionPhase = 'bootstrapping' | 'switching' | 'streaming' | 'idle';
 
 function groupSessionsByTime(items: CreativeSession[]) {
   const now = Date.now();
@@ -518,6 +519,7 @@ export default function CreativeAgentPageNew() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyReloadSeed, setHistoryReloadSeed] = useState(0);
   const [sessionQuery, setSessionQuery] = useState('');
+  const [sessionPhase, setSessionPhase] = useState<SessionPhase>('bootstrapping');
   const [isLoading, setIsLoading] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [memoryActionLoading, setMemoryActionLoading] = useState<string | null>(null);
@@ -630,7 +632,7 @@ export default function CreativeAgentPageNew() {
   const loadSessions = useCallback(async (options?: { preferredSessionId?: string | null }) => {
     if (!token) return;
     try {
-      const res = await fetch('/api/xiaohai/agent/chat?listSessions=1', {
+      const res = await fetch('/api/xiaohai/agent/sessions', {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return;
@@ -656,6 +658,7 @@ export default function CreativeAgentPageNew() {
     
     const fetchHistory = async () => {
       const requestId = ++historyRequestSeq.current;
+      setSessionPhase('switching');
       setHistoryLoading(true);
       setHistoryError(null);
       historyAbortRef.current?.abort();
@@ -665,7 +668,7 @@ export default function CreativeAgentPageNew() {
       try {
         addDebugLog('api', '加载对话历史开始', { userId: user.user_id, activeSessionId });
         const qs = `?sessionId=${activeSessionId}`;
-        const historyRes = await fetch(`/api/xiaohai/agent/chat${qs}`, {
+        const historyRes = await fetch(`/api/xiaohai/agent/sessions${qs}`, {
           headers: { Authorization: `Bearer ${token}` },
           signal: controller.signal,
         });
@@ -733,6 +736,9 @@ export default function CreativeAgentPageNew() {
       } finally {
         if (requestId === historyRequestSeq.current) {
           setHistoryLoading(false);
+          if (!isLoading) {
+            setSessionPhase('idle');
+          }
         }
       }
     };
@@ -754,13 +760,15 @@ export default function CreativeAgentPageNew() {
     if (!user?.user_id || !token) return;
     let mounted = true;
     const bootstrap = async () => {
+      setSessionPhase('bootstrapping');
       setSessionLoading(true);
-      const res = await fetch('/api/xiaohai/agent/chat?listSessions=1', {
+      const res = await fetch('/api/xiaohai/agent/sessions', {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!mounted) return;
       if (!res.ok) {
         setSessionLoading(false);
+        setSessionPhase('idle');
         return;
       }
       const data = await res.json();
@@ -773,6 +781,7 @@ export default function CreativeAgentPageNew() {
       }
       setSessionReady(true);
       setSessionLoading(false);
+      setSessionPhase('idle');
     };
     bootstrap();
     return () => {
@@ -782,10 +791,16 @@ export default function CreativeAgentPageNew() {
 
   const handleCreateSession = async () => {
     if (!token || isLoading || sessionLoading) return;
+    setSessionPhase('switching');
     setSessionLoading(true);
     try {
-      const res = await fetch('/api/xiaohai/agent/chat?createSession=1', {
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await fetch('/api/xiaohai/agent/sessions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action: 'create' }),
       });
       if (!res.ok) return;
       const data = await res.json();
@@ -800,6 +815,9 @@ export default function CreativeAgentPageNew() {
       console.error('创建新会话失败:', error);
     } finally {
       setSessionLoading(false);
+      if (!isLoading) {
+        setSessionPhase('idle');
+      }
     }
   };
 
@@ -819,6 +837,7 @@ export default function CreativeAgentPageNew() {
       },
     ]);
     setSendError(null);
+    setSessionPhase('idle');
   };
 
   const handleRetryLastUserMessage = () => {
@@ -1012,6 +1031,7 @@ export default function CreativeAgentPageNew() {
     setAttachments([]);
     setIsLoading(true);
     setSendError(null);
+    setSessionPhase('streaming');
     
     // 构建附件
     const apiAttachments = attachments
@@ -1025,11 +1045,36 @@ export default function CreativeAgentPageNew() {
     let currentParts: MessagePart[] = [];
     // 🔧 简化：删除 currentTask，视频生成后去视频历史页面查看
     
+    let boundSessionId = activeSessionId;
+    if (!boundSessionId && token) {
+      try {
+        const createRes = await fetch('/api/xiaohai/agent/sessions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ action: 'create' }),
+        });
+        if (createRes.ok) {
+          const created = await createRes.json();
+          const sid = created?.data?.session?.id as string | undefined;
+          if (sid) {
+            boundSessionId = sid;
+            setActiveSessionId(sid);
+            setSessions((prev) => [created.data.session as CreativeSession, ...prev.filter((item) => item.id !== sid)]);
+          }
+        }
+      } catch (createErr) {
+        console.error('发送前创建会话失败:', createErr);
+      }
+    }
+
     const requestBody = {
       message: text,
       attachments: apiAttachments,
       history: conversationHistory.current,
-      sessionId: activeSessionId,
+      sessionId: boundSessionId,
       webSearchEnabled  // 联网搜索开关
     };
     
@@ -1206,6 +1251,7 @@ export default function CreativeAgentPageNew() {
               setIsLoading(false);
               streamingMessageIdRef.current = null;
               streamAbortRef.current = null;
+              setSessionPhase('idle');
               loadSessions({ preferredSessionId: activeSessionId });
               break;
           }
@@ -1213,12 +1259,14 @@ export default function CreativeAgentPageNew() {
         (error: Error) => {
           if (error.message === '请求已取消') {
             setIsLoading(false);
+            setSessionPhase('idle');
             return;
           }
           addDebugLog('error', 'SSE 流错误', { message: error.message });
           setIsLoading(false);
           streamingMessageIdRef.current = null;
           streamAbortRef.current = null;
+          setSessionPhase('idle');
           setMessages((prev) => [
             ...prev,
             {
@@ -1236,6 +1284,7 @@ export default function CreativeAgentPageNew() {
       setIsLoading(false);
       streamingMessageIdRef.current = null;
       streamAbortRef.current = null;
+      setSessionPhase('idle');
       lastFailedUserTextRef.current = text;
       setSendError('发送失败，网络波动或服务超时。');
     }
@@ -1443,6 +1492,7 @@ export default function CreativeAgentPageNew() {
                 value={activeSessionId || undefined}
                 onValueChange={(value) => {
                   if (isLoading || sessionLoading) return;
+                  setSessionPhase('switching');
                   setActiveSessionId(value);
                   setHistoryError(null);
                 }}
@@ -1502,6 +1552,11 @@ export default function CreativeAgentPageNew() {
                 >
                   重试上条
                 </Button>
+              )}
+              {sessionPhase !== 'idle' && (
+                <Badge variant="secondary" className="text-xs">
+                  {sessionPhase === 'bootstrapping' ? '初始化中' : sessionPhase === 'switching' ? '切换中' : '生成中'}
+                </Badge>
               )}
               <Badge variant="outline" className="text-xs">
                 <span className="w-2 h-2 rounded-full bg-green-500 mr-1" />
