@@ -29,6 +29,23 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(Math.max(Number(searchParams.get('limit') || 50), 1), 200);
 
     const supabase = getSupabaseClient();
+
+    // 自动收敛“卡住的运行中任务”：超过 15 分钟未结束则标记失败，便于前端恢复/重试
+    const staleAt = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    await supabase
+      .from('worker_tasks')
+      .update({
+        status: 'failed',
+        progress: 100,
+        completed_at: new Date().toISOString(),
+        error_message: '任务状态超时，已自动转为可重试',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', userId)
+      .eq('status', 'running')
+      .lt('started_at', staleAt)
+      .is('completed_at', null);
+
     let query = supabase
       .from('worker_tasks')
       .select('id,user_id,session_id,task_type,status,progress,priority,error_message,retry_count,max_retries,queued_at,started_at,completed_at,created_at,updated_at,input_data,output_data')
