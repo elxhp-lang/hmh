@@ -20,9 +20,11 @@ import { getXiaohaiSystemPromptV3 } from '@/lib/xiaohai-system-prompt-v3';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { createSSEWriter, getBearerToken, ok } from '@/lib/server/api-kit';
 import { MessagePart, normalizeToolExecutionResult } from '@/lib/agent-sse';
+import { TaskStateService } from '@/lib/server/task-state-service';
 
 const client = new LLMClient(new Config());
 const toolsService = new AgentToolsService();
+const taskStateService = new TaskStateService();
 
 // ========== 内存限流器：防止 API 滥用 ==========
 // 方案 B：传统服务器环境（单实例部署）
@@ -148,69 +150,6 @@ async function ensureCreativeSession(userId: string, preferredSessionId?: string
     if (existing) return existing as any;
   }
   return createCreativeSession(userId);
-}
-
-async function createWorkerTask(userId: string, sessionId: string, payload: Record<string, unknown>) {
-  const supabase = getSupabaseClient();
-  const { data, error } = await supabase
-    .from('worker_tasks')
-    .insert({
-      user_id: userId,
-      session_id: sessionId,
-      task_type: 'creative_chat',
-      status: 'running',
-      progress: 3,
-      input_data: payload,
-      queued_at: new Date().toISOString(),
-      started_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .select('id')
-    .single();
-  if (error || !data?.id) throw new Error(`创建任务失败: ${error?.message || 'unknown'}`);
-  return String(data.id);
-}
-
-async function appendTaskEvent(taskId: string, userId: string, sessionId: string, eventType: string, eventData: Record<string, unknown> = {}) {
-  const supabase = getSupabaseClient();
-  await supabase.from('task_events').insert({
-    task_id: taskId,
-    user_id: userId,
-    session_id: sessionId,
-    event_type: eventType,
-    event_data: eventData,
-  });
-}
-
-async function updateWorkerTask(taskId: string, patch: Record<string, unknown>) {
-  const supabase = getSupabaseClient();
-  await supabase
-    .from('worker_tasks')
-    .update({
-      ...patch,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', taskId);
-}
-
-async function saveTaskOutput(
-  taskId: string,
-  userId: string,
-  sessionId: string,
-  messageId: string | null,
-  textContent: string,
-  parts: MessagePart[]
-) {
-  const supabase = getSupabaseClient();
-  await supabase.from('task_outputs').insert({
-    task_id: taskId,
-    user_id: userId,
-    session_id: sessionId,
-    message_id: messageId,
-    output_type: 'assistant_message',
-    text_content: textContent,
-    parts: parts || [],
-  });
 }
 
 // ========== 动态系统提示词 ==========
@@ -437,7 +376,7 @@ export async function POST(request: NextRequest) {
 
     // 2. 解析请求
     const body = await request.json();
-    const { message, attachments, webSearchEnabled = false, history = [], sessionId } = body;
+    const { message, attachments, webSearchEnabled = false, history = [], sessionId, clientRequestId } = body;
 
     // 设置联网搜索开关
     toolsService.setWebSearchEnabled(webSearchEnabled);
@@ -449,16 +388,25 @@ export async function POST(request: NextRequest) {
     // 会话确保（断点重续核心）
     const session = userId ? await ensureCreativeSession(userId, sessionId || null) : null;
     toolsService.setSessionId(session?.id || null);
-    const workerTaskId = userId && session?.id
-      ? await createWorkerTask(userId, session.id, {
-          message: typeof message === 'string' ? message : '',
-          hasAttachments: Array.isArray(attachments) ? attachments.length > 0 : false,
-          webSearchEnabled: !!webSearchEnabled,
+    const ensuredTask = userId && session?.id
+      ? await taskStateService.ensureTask({
+          userId,
+          sessionId: session.id,
+          taskType: 'creative_chat',
+          clientRequestId: typeof clientRequestId === 'string' ? clientRequestId : null,
+          inputData: {
+            message: typeof message === 'string' ? message : '',
+            hasAttachments: Array.isArray(attachments) ? attachments.length > 0 : false,
+            webSearchEnabled: !!webSearchEnabled,
+          },
         })
       : null;
+    const workerTaskId = ensuredTask?.id || null;
+    const reusedTerminalTask = !!(ensuredTask?.reused && ['succeeded', 'failed', 'cancelled', 'partial_succeeded'].includes(ensuredTask.status));
     if (workerTaskId && userId && session?.id) {
-      await appendTaskEvent(workerTaskId, userId, session.id, 'task_started', {
+      await taskStateService.appendEvent(workerTaskId, userId, session.id, ensuredTask?.reused ? 'task_reused' : 'task_started', {
         status: 'running',
+        reused: !!ensuredTask?.reused,
       });
     }
 
@@ -584,6 +532,18 @@ export async function POST(request: NextRequest) {
         try {
           // 发送开始信号
           sendEvent({ type: 'start', data: { sessionId: session?.id || null, taskId: workerTaskId } });
+          if (reusedTerminalTask) {
+            sendEvent({
+              type: 'task',
+              data: {
+                taskId: workerTaskId,
+                status: ensuredTask?.status,
+                note: '检测到重复请求，已复用已有任务结果',
+              },
+            });
+            controller.close();
+            return;
+          }
 
           let iterations = 0;
 
@@ -592,8 +552,8 @@ export async function POST(request: NextRequest) {
             console.log(`🔄 [Agent] 第 ${iterations} 次迭代`);
             if (workerTaskId && userId && session?.id) {
               const progress = Math.min(95, 3 + iterations * 8);
-              await updateWorkerTask(workerTaskId, { status: 'running', progress });
-              await appendTaskEvent(workerTaskId, userId, session.id, 'iteration', { iteration: iterations, progress });
+              await taskStateService.transitionTask(workerTaskId, 'running', { progress });
+              await taskStateService.appendEvent(workerTaskId, userId, session.id, 'iteration', { iteration: iterations, progress });
             }
 
             // 调用 LLM
@@ -652,7 +612,7 @@ export async function POST(request: NextRequest) {
                 await updateConversationMessageParts(assistantMessageId, userId, iterationParts);
               }
               if (workerTaskId && userId && session?.id) {
-                await saveTaskOutput(workerTaskId, userId, session.id, assistantMessageId, assistantMessage, iterationParts);
+                await taskStateService.saveOutput(workerTaskId, userId, session.id, assistantMessageId, assistantMessage, iterationParts);
               }
             };
 
@@ -696,13 +656,12 @@ export async function POST(request: NextRequest) {
               }
               await persistAssistantParts();
               if (workerTaskId && userId && session?.id) {
-                await updateWorkerTask(workerTaskId, {
-                  status: 'succeeded',
+                await taskStateService.transitionTask(workerTaskId, 'succeeded', {
                   progress: 100,
                   completed_at: new Date().toISOString(),
                   output_data: { finishedBy: 'text' },
                 });
-                await appendTaskEvent(workerTaskId, userId, session.id, 'task_succeeded', { progress: 100 });
+                await taskStateService.appendEvent(workerTaskId, userId, session.id, 'task_succeeded', { progress: 100 });
               }
               controller.close(); // 🔧 修复：必须关闭流，前端才能收到 done 事件
               break;
@@ -815,8 +774,7 @@ export async function POST(request: NextRequest) {
                   (toolName === 'submit_video_task' || toolName === 'generate_first_frame') &&
                   result?.success
                 ) {
-                  await updateWorkerTask(workerTaskId, {
-                    status: 'succeeded',
+                  await taskStateService.transitionTask(workerTaskId, 'succeeded', {
                     progress: 100,
                     completed_at: new Date().toISOString(),
                     error_message: null,
@@ -826,7 +784,7 @@ export async function POST(request: NextRequest) {
                       lifecycle: 'submitted_to_background',
                     },
                   });
-                  await appendTaskEvent(workerTaskId, userId, session.id, 'task_submitted', {
+                  await taskStateService.appendEvent(workerTaskId, userId, session.id, 'task_submitted', {
                     tool: toolName,
                     result: result?.data ?? null,
                   });
@@ -883,14 +841,13 @@ export async function POST(request: NextRequest) {
                 await persistAssistantParts();
                 if (workerTaskId && userId && session?.id) {
                   const success = parsed.type === 'task_done';
-                  await updateWorkerTask(workerTaskId, {
-                    status: success ? 'succeeded' : 'failed',
+                  await taskStateService.transitionTask(workerTaskId, success ? 'succeeded' : 'failed', {
                     progress: success ? 100 : 100,
                     completed_at: new Date().toISOString(),
                     error_message: success ? null : (parsed.content || '任务失败'),
                     output_data: typeof parsed.data === 'object' && parsed.data ? parsed.data : {},
                   });
-                  await appendTaskEvent(workerTaskId, userId, session.id, success ? 'task_succeeded' : 'task_failed', {
+                  await taskStateService.appendEvent(workerTaskId, userId, session.id, success ? 'task_succeeded' : 'task_failed', {
                     reason: parsed.content || '',
                   });
                 }
@@ -914,13 +871,12 @@ export async function POST(request: NextRequest) {
               if (iterations >= 3 && parsed.type === 'text') {
                 await persistAssistantParts();
                 if (workerTaskId && userId && session?.id) {
-                  await updateWorkerTask(workerTaskId, {
-                    status: 'succeeded',
+                  await taskStateService.transitionTask(workerTaskId, 'succeeded', {
                     progress: 100,
                     completed_at: new Date().toISOString(),
                     output_data: { finishedBy: 'text_iteration_cap' },
                   });
-                  await appendTaskEvent(workerTaskId, userId, session.id, 'task_succeeded', { progress: 100 });
+                  await taskStateService.appendEvent(workerTaskId, userId, session.id, 'task_succeeded', { progress: 100 });
                 }
                 controller.close(); // 🔧 修复：必须关闭流
                 break;
@@ -933,13 +889,12 @@ export async function POST(request: NextRequest) {
             sendEvent({ type: 'text', content: assistantMessage });
             await persistAssistantParts();
             if (workerTaskId && userId && session?.id) {
-              await updateWorkerTask(workerTaskId, {
-                status: 'succeeded',
+              await taskStateService.transitionTask(workerTaskId, 'succeeded', {
                 progress: 100,
                 completed_at: new Date().toISOString(),
                 output_data: { finishedBy: 'fallback' },
               });
-              await appendTaskEvent(workerTaskId, userId, session.id, 'task_succeeded', { progress: 100 });
+              await taskStateService.appendEvent(workerTaskId, userId, session.id, 'task_succeeded', { progress: 100 });
             }
             controller.close(); // 🔧 修复：必须关闭流
             break;
@@ -955,13 +910,12 @@ export async function POST(request: NextRequest) {
         } catch (error) {
           console.error('❌ [Agent] 错误:', error);
           if (workerTaskId && userId && session?.id) {
-            await updateWorkerTask(workerTaskId, {
-              status: 'failed',
+            await taskStateService.transitionTask(workerTaskId, 'failed', {
               progress: 100,
               completed_at: new Date().toISOString(),
               error_message: error instanceof Error ? error.message : '发生错误',
             });
-            await appendTaskEvent(workerTaskId, userId, session.id, 'task_failed', {
+            await taskStateService.appendEvent(workerTaskId, userId, session.id, 'task_failed', {
               reason: error instanceof Error ? error.message : '发生错误',
             });
           }

@@ -3,12 +3,12 @@ import { verifyToken } from '@/lib/auth';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { getBearerToken, ok } from '@/lib/server/api-kit';
 
-type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'partial_succeeded';
 
 function normalizeStatus(value: string | null): TaskStatus | null {
   if (!value) return null;
   const status = value.trim().toLowerCase();
-  if (status === 'queued' || status === 'running' || status === 'succeeded' || status === 'failed' || status === 'cancelled') {
+  if (status === 'queued' || status === 'running' || status === 'succeeded' || status === 'failed' || status === 'cancelled' || status === 'partial_succeeded') {
     return status;
   }
   return null;
@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', taskId)
         .eq('user_id', userId)
-        .in('status', ['failed', 'cancelled'])
+        .in('status', ['failed', 'cancelled', 'partial_succeeded'])
         .select('id,status,queued_at,retry_count')
         .single();
       if (error || !data) return ok(false, null, `重试任务失败: ${error?.message || '任务不存在或状态不允许重试'}`, 400);

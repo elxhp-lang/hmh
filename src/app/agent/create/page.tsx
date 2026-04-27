@@ -1142,6 +1142,7 @@ export default function CreativeAgentPageNew() {
     }
 
     const requestBody = {
+      clientRequestId: generateId('req'),
       message: text,
       attachments: apiAttachments,
       history: conversationHistory.current,
