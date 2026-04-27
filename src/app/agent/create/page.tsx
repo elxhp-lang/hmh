@@ -530,7 +530,7 @@ export default function CreativeAgentPageNew() {
   const lastStreamUiFlushRef = useRef(0);
   
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
   }, []);
 
   useEffect(() => {
@@ -1216,11 +1216,11 @@ export default function CreativeAgentPageNew() {
         </DialogContent>
       </Dialog>
       
-      <div className="flex h-[calc(100vh-140px)]">
+      <div className="flex h-[calc(100vh-128px)] rounded-2xl border bg-card/70 backdrop-blur-sm overflow-hidden shadow-sm">
         {/* 左侧对话区 - min-h-0 关键！ */}
-        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-gradient-to-b from-background to-muted/20">
           {/* 头部 - shrink-0 防止被压缩 */}
-          <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b">
+          <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b bg-background/80 backdrop-blur">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
                 <Sparkles className="w-5 h-5 text-white" />
@@ -1280,7 +1280,7 @@ export default function CreativeAgentPageNew() {
           </div>
           
           {/* 消息区域 - min-h-0 关键！允许收缩 */}
-          <ScrollArea className="min-h-0 flex-1 px-6 py-4">
+          <ScrollArea className="min-h-0 flex-1 px-6 py-5">
             {messages.length === 0 ? (
               <WelcomePage onQuickStart={handleQuickStart} />
             ) : (
@@ -1382,7 +1382,7 @@ export default function CreativeAgentPageNew() {
           </ScrollArea>
           
           {/* 输入区 - shrink-0 防止被压缩 */}
-          <div className="shrink-0 px-6 py-4 border-t">
+          <div className="shrink-0 px-6 py-4 border-t bg-background/90 backdrop-blur">
             <HybridInput
               value={inputValue}
               onChange={setInputValue}
@@ -1405,7 +1405,7 @@ export default function CreativeAgentPageNew() {
         </div>
         
         {/* 右侧功能区 */}
-        <div className="w-80 border-l bg-muted/30 shrink-0 overflow-y-auto">
+        <div className="w-80 border-l bg-muted/25 shrink-0 overflow-y-auto">
           <RightSidebar
             creationOptions={creationOptions}
             onCreationOptionsChange={setCreationOptions}

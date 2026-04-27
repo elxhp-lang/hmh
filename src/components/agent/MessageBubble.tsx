@@ -3,14 +3,16 @@
 import { useState, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import { RichMessageContent } from '@/components/agent/RichMessageContent';
 import { 
   Bot, 
   User, 
   Image as ImageIcon, 
   Video, 
   Link2,
+  Copy,
   Loader2,
-  CheckCircle2
+  Check
 } from 'lucide-react';
 
 // ========== 类型定义 ==========
@@ -46,6 +48,7 @@ export function MessageBubble({
 }: MessageBubbleProps) {
   const isUser = type === 'user';
   const isSystem = type === 'system';
+  const [copied, setCopied] = useState(false);
   
   // 格式化时间
   const formatTime = (date: Date) => {
@@ -66,6 +69,16 @@ export function MessageBubble({
         return <Link2 className="w-4 h-4" />;
       default:
         return null;
+    }
+  };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch (error) {
+      console.error('复制失败:', error);
     }
   };
 
@@ -111,9 +124,7 @@ export function MessageBubble({
           )}
           
           {/* 消息文本 */}
-          <div className="whitespace-pre-wrap break-words">
-            {content}
-          </div>
+          <RichMessageContent content={content} />
           
           {/* 流式加载指示器 */}
           {isStreaming && (
@@ -147,7 +158,7 @@ export function MessageBubble({
                 </div>
               ))}
             </div>
-            {attachments.some((attachment) => attachment.type === 'image') && (
+            {attachments.some((attachment) => attachment.type === 'image' || attachment.type === 'video') && (
               <div className={cn('grid gap-2', isUser ? 'justify-items-end' : 'justify-items-start')}>
                 {attachments
                   .filter((attachment) => attachment.type === 'image')
@@ -166,6 +177,21 @@ export function MessageBubble({
                       />
                     </a>
                   ))}
+                {attachments
+                  .filter((attachment) => attachment.type === 'video')
+                  .map((attachment, index) => (
+                    <div
+                      key={`vid_${index}`}
+                      className="rounded-lg border overflow-hidden bg-black/80"
+                    >
+                      <video
+                        src={attachment.url}
+                        controls
+                        className="w-full max-w-[260px] max-h-[220px]"
+                        preload="metadata"
+                      />
+                    </div>
+                  ))}
               </div>
             )}
           </div>
@@ -178,6 +204,20 @@ export function MessageBubble({
         )}>
           {isStreaming ? '正在输入...' : formatTime(timestamp)}
         </span>
+
+        {!isSystem && (
+          <div className={cn('mt-1 opacity-0 hover:opacity-100 transition-opacity', isUser ? 'text-right' : 'text-left')}>
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+              aria-label="复制消息"
+            >
+              {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              {copied ? '已复制' : '复制'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
