@@ -60,9 +60,10 @@ export interface MaterialItem {
 export interface WorkerTaskItem {
   id: string;
   task_type?: string;
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'partial_succeeded';
   progress?: number;
   error_message?: string | null;
+  session_id?: string | null;
   created_at?: string;
   updated_at?: string;
 }

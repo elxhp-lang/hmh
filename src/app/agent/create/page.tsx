@@ -606,6 +606,8 @@ export default function CreativeAgentPageNew() {
   const streamAbortRef = useRef<AbortController | null>(null);
   const lastFailedUserTextRef = useRef<string | null>(null);
   const activeSessionIdRef = useRef<string | null>(null);
+  const previousTaskStatusRef = useRef<Map<string, string>>(new Map());
+  const notifiedTerminalTaskRef = useRef<Set<string>>(new Set());
   
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
@@ -1068,6 +1070,48 @@ export default function CreativeAgentPageNew() {
       console.error('任务回放失败:', error);
     }
   }, [token, activeSessionId]);
+
+  useEffect(() => {
+    if (!workerTasks.length) return;
+    for (const task of workerTasks) {
+      const prev = previousTaskStatusRef.current.get(task.id);
+      previousTaskStatusRef.current.set(task.id, task.status);
+      if (!prev || prev === task.status) continue;
+
+      const isTerminal =
+        task.status === 'succeeded' ||
+        task.status === 'partial_succeeded' ||
+        task.status === 'failed' ||
+        task.status === 'cancelled';
+      if (!isTerminal) continue;
+      if (notifiedTerminalTaskRef.current.has(task.id)) continue;
+      notifiedTerminalTaskRef.current.add(task.id);
+
+      const isCurrentSessionTask = !task.session_id || !activeSessionId || task.session_id === activeSessionId;
+      const systemText =
+        task.status === 'succeeded'
+          ? `后台任务已完成：${task.id.slice(0, 8)}`
+          : task.status === 'partial_succeeded'
+          ? `后台任务部分完成：${task.id.slice(0, 8)}`
+          : task.status === 'failed'
+          ? `后台任务失败：${task.error_message || task.id.slice(0, 8)}`
+          : `后台任务已取消：${task.id.slice(0, 8)}`;
+
+      setMessages((prevMsgs) => {
+        const msg: Message = {
+          id: generateId('sys_task'),
+          type: 'system',
+          content: systemText,
+          timestamp: new Date(),
+        };
+        return [...prevMsgs, msg];
+      });
+
+      if (isCurrentSessionTask && (task.status === 'succeeded' || task.status === 'partial_succeeded')) {
+        handleOpenTaskReplay(task.id);
+      }
+    }
+  }, [workerTasks, activeSessionId, handleOpenTaskReplay]);
   
   useEffect(() => {
     scrollToBottom();
