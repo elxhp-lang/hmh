@@ -456,7 +456,8 @@ export async function POST(request: NextRequest) {
             });
 
             for await (const chunk of response) {
-              const content = chunk.content || '';
+              const rawContent = (chunk as any).content;
+              const content = typeof rawContent === 'string' ? rawContent : '';
               if (content) {
                 assistantMessage += content;
 
