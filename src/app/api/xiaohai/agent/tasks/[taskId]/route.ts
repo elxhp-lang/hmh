@@ -17,13 +17,13 @@ function isRenderableMediaUrl(url: string | null | undefined): url is string {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { taskId: string } }
+  { params }: { params: Promise<{ taskId: string }> }
 ) {
   try {
     const auth = requireAuth(request);
     if (auth.response || !auth.user) return auth.response;
     const userId = auth.user.userId;
-    const taskId = params.taskId;
+    const { taskId } = await params;
     if (!taskId) return fail('缺少 taskId', 400);
 
     const supabase = getSupabaseClient();

@@ -1082,7 +1082,7 @@ export default function CreativeAgentPageNew() {
       if (replayMessages.length === 0) {
         const previewMessages = items
           .map((item, idx) => {
-            const result = item?.output_data?.result || {};
+            const result = (item?.output_data?.result || {}) as Record<string, unknown>;
             const imageCandidates = [
               typeof result.image_url === 'string' ? result.image_url : '',
               typeof result.preview_image_url === 'string' ? result.preview_image_url : '',
@@ -1113,7 +1113,7 @@ export default function CreativeAgentPageNew() {
               parts,
             };
           })
-          .filter((msg): msg is Message => !!msg);
+          .filter((msg): msg is NonNullable<typeof msg> => !!msg);
         replayMessages.push(...previewMessages);
       }
       if (!replayMessages.length) {
