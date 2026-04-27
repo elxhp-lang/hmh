@@ -751,7 +751,6 @@ export default function CreativeAgentPageNew() {
 
   useEffect(() => {
     return () => {
-      streamAbortRef.current?.abort();
       historyAbortRef.current?.abort();
     };
   }, []);

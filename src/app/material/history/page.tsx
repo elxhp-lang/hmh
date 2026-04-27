@@ -133,6 +133,13 @@ export default function MaterialHistoryPage() {
       .filter((video) => video.source_video_id === sourceId || video.id === sourceId)
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   }, [data?.videos, sourceVideoFilter]);
+  const tagFilterOptions = useMemo(() => {
+    const fromPool = tagDefinitions.map((item) => item.name).filter(Boolean);
+    const fromVideos = (data?.videos || [])
+      .flatMap((video) => video.tags || [])
+      .filter((tag): tag is string => typeof tag === 'string' && tag.trim().length > 0);
+    return Array.from(new Set([...fromPool, ...fromVideos])).sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  }, [tagDefinitions, data?.videos]);
 
   // 是否可以查看团队
   const canViewTeam = permission.isMaterialLeader || permission.isAdmin;
@@ -918,11 +925,25 @@ export default function MaterialHistoryPage() {
               </div>
 
               <div className="min-w-[180px]">
-                <Input
-                  placeholder="按标签筛选，如：开箱"
-                  value={tagKeyword}
-                  onChange={(e) => setTagKeyword(e.target.value)}
-                />
+                <Select
+                  value={tagKeyword || 'all'}
+                  onValueChange={(value) => {
+                    setTagKeyword(value === 'all' ? '' : value);
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="按标签筛选" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部标签</SelectItem>
+                    {tagFilterOptions.map((tag) => (
+                      <SelectItem key={tag} value={tag}>
+                        {tag}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="min-w-[220px]">

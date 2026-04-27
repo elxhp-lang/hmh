@@ -199,7 +199,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 3. 合并两个表的结果
-    const mergedVideos: Array<{
+    let mergedVideos: Array<{
       id: string;
       user_id: string;
       session_id?: string | null;
@@ -310,10 +310,15 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 4. 按创建时间排序
+    // 4. 二次筛选（兼容 learning_library 数据）
+    if (tag) {
+      mergedVideos = mergedVideos.filter((video) => Array.isArray(video.tags) && video.tags.includes(tag));
+    }
+
+    // 5. 按创建时间排序
     mergedVideos.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-    // 5. 分页
+    // 6. 分页
     const total = mergedVideos.length;
     const paginatedVideos = mergedVideos.slice(offset, offset + limit);
     const count = total;  // 用于计算总页数
