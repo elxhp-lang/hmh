@@ -1001,11 +1001,15 @@ export default function CreativeAgentPageNew() {
   // 关闭通知弹窗
   const handleCloseNotification = () => {
     setShowNotificationDialog(false);
+    setHasNewVideo(false);
+    setNewVideoNotification(null);
   };
   
   // 查看视频
   const handleViewVideo = () => {
     setShowNotificationDialog(false);
+    setHasNewVideo(false);
+    setNewVideoNotification(null);
     // 可以在这里添加跳转到素材历史页面的逻辑
     window.location.href = '/material/history';
   };
@@ -1035,6 +1039,11 @@ export default function CreativeAgentPageNew() {
       });
       if (!res.ok) return;
       const data = await res.json();
+      const taskSessionId = (data?.data?.task?.session_id || null) as string | null;
+      if (taskSessionId && activeSessionId && taskSessionId !== activeSessionId) {
+        setHistoryError('该任务属于其他会话，请先切换到对应会话再回放。');
+        return;
+      }
       const outputs = (data?.data?.outputs || []) as Array<{ id: string; text_content?: string; parts?: MessagePart[]; created_at?: string }>;
       if (!outputs.length) return;
       const replayMessages: Message[] = outputs.map((item) => ({
@@ -1050,12 +1059,15 @@ export default function CreativeAgentPageNew() {
         for (const msg of replayMessages) {
           if (!known.has(msg.id)) next.push(msg);
         }
+        conversationHistory.current = next
+          .filter((m) => m.type === 'user' || m.type === 'assistant')
+          .map((m) => ({ role: m.type === 'user' ? 'user' : 'assistant', content: m.content }));
         return next;
       });
     } catch (error) {
       console.error('任务回放失败:', error);
     }
-  }, [token]);
+  }, [token, activeSessionId]);
   
   useEffect(() => {
     scrollToBottom();
