@@ -8,6 +8,7 @@
     "dev:start": "bash ./scripts/dev-start.sh",
     "preinstall": "npx only-allow pnpm",
     "lint": "eslint",
+    "contract-check": "tsx scripts/contract-check.ts",
     "start": "bash ./scripts/start.sh",
     "ts-check": "tsc -p tsconfig.json"
   },
