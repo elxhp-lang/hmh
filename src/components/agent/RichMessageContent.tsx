@@ -149,6 +149,13 @@ export function RichMessageContent({ content, parts = [] }: RichMessageContentPr
             );
           }
           if (part.cardType === 'tool_result') {
+            const payload = (dataRecord.data && typeof dataRecord.data === 'object')
+              ? (dataRecord.data as Record<string, unknown>)
+              : null;
+            const nativeTaskId = payload && typeof payload.task_id === 'string' ? payload.task_id : '';
+            const seedanceTaskId = payload && typeof payload.seedance_task_id === 'string' ? payload.seedance_task_id : '';
+            const workerTaskId = payload && typeof payload.worker_task_id === 'string' ? payload.worker_task_id : '';
+            const queryId = payload && typeof payload.query_id === 'string' ? payload.query_id : '';
             return (
               <div key={`part_card_${pIdx}`} className="rounded-lg border bg-background/60 px-3 py-2 text-xs space-y-1">
                 <p className="font-medium">工具执行结果</p>
@@ -156,6 +163,20 @@ export function RichMessageContent({ content, parts = [] }: RichMessageContentPr
                 <p className="text-muted-foreground">
                   状态：{dataRecord.success ? '成功' : '失败'}
                 </p>
+                {(nativeTaskId || seedanceTaskId || workerTaskId || queryId) && (
+                  <div className="space-y-0.5">
+                    {nativeTaskId && <p className="text-muted-foreground break-all">统一任务ID：{nativeTaskId}</p>}
+                    {seedanceTaskId && seedanceTaskId !== nativeTaskId && (
+                      <p className="text-muted-foreground break-all">工具原始ID：{seedanceTaskId}</p>
+                    )}
+                    {queryId && queryId !== nativeTaskId && (
+                      <p className="text-muted-foreground break-all">查询ID：{queryId}</p>
+                    )}
+                    {workerTaskId && workerTaskId !== nativeTaskId && (
+                      <p className="text-muted-foreground break-all">平台追踪ID：{workerTaskId}</p>
+                    )}
+                  </div>
+                )}
                 {typeof dataRecord.error === 'string' && dataRecord.error && (
                   <p className="text-destructive/80 break-words">错误：{dataRecord.error}</p>
                 )}

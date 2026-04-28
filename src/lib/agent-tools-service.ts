@@ -541,12 +541,16 @@ export class AgentToolsService {
 
   /**
    * 工具7：查询任务状态
-   * 支持按 seedance_task_id 或 video_id 查询
+   * 支持按 query_id/task_id（推荐，Worker Task ID）或 seedance_task_id/video_id 查询
    */
   async queryTaskStatus(taskIdOrVideoId: string): Promise<{
     success: boolean;
     data?: {
+      query_id: string;
       task_id: string;
+      worker_task_id?: string;
+      video_id?: string;
+      seedance_task_id?: string;
       status: string;
       progress?: number;
       video_url?: string;
@@ -569,6 +573,12 @@ export class AgentToolsService {
         const workerData = workerTask as any;
         const outputData = (workerData.output_data || {}) as Record<string, any>;
         const submitResult = (outputData.submit_result || {}) as Record<string, any>;
+        const canonicalTaskId =
+          (typeof submitResult.seedance_task_id === 'string' && submitResult.seedance_task_id) ||
+          (typeof submitResult.task_id === 'string' && submitResult.task_id) ||
+          (typeof outputData.seedance_task_id === 'string' && outputData.seedance_task_id) ||
+          (typeof outputData.task_id === 'string' && outputData.task_id) ||
+          String(workerData.id);
         const workerVideoUrl =
           (typeof submitResult.public_video_url === 'string' && submitResult.public_video_url) ||
           (typeof submitResult.video_url === 'string' && submitResult.video_url) ||
@@ -576,7 +586,13 @@ export class AgentToolsService {
         return {
           success: true,
           data: {
-            task_id: String(workerData.id),
+            query_id: canonicalTaskId,
+            task_id: canonicalTaskId,
+            worker_task_id: String(workerData.id),
+            seedance_task_id:
+              (typeof submitResult.seedance_task_id === 'string' && submitResult.seedance_task_id) ||
+              (typeof outputData.seedance_task_id === 'string' && outputData.seedance_task_id) ||
+              undefined,
             status: String(workerData.status || 'running'),
             progress: Number(workerData.progress || 0),
             video_url: workerVideoUrl,
@@ -640,7 +656,10 @@ export class AgentToolsService {
       return {
         success: true,
         data: {
-          task_id: d.task_id as string,
+          query_id: (typeof d?.task_id === 'string' && d.task_id) ? d.task_id : taskIdOrVideoId,
+          task_id: (typeof d?.task_id === 'string' && d.task_id) ? d.task_id : taskIdOrVideoId,
+          video_id: typeof d?.id === 'string' ? d.id : undefined,
+          seedance_task_id: typeof d?.task_id === 'string' ? d.task_id : undefined,
           status: status as string,
           progress: progress as number,
           video_url: videoUrl as string | undefined
@@ -742,12 +761,20 @@ export class AgentToolsService {
         }),
       
       query_task_status: async (params: { 
+        query_id?: string;
+        worker_task_id?: string;
         video_id?: string; 
         seedance_task_id?: string;
         task_id?: string;
       }) => {
         // 支持多种参数名
-        const id = params.video_id || params.seedance_task_id || params.task_id || '';
+        const id =
+          params.task_id ||
+          params.seedance_task_id ||
+          params.query_id ||
+          params.worker_task_id ||
+          params.video_id ||
+          '';
         return this.queryTaskStatus(id);
       },
       
@@ -1627,6 +1654,9 @@ ${modification}
     success: boolean;
     data?: {
       image_url: string;
+      public_image_url?: string;
+      signed_image_url?: string;
+      tos_key?: string;
       image_id: string;
     };
     error?: string;
@@ -1646,6 +1676,9 @@ ${modification}
           success: true,
           data: {
             image_url: result.imageUrl,
+            public_image_url: result.publicImageUrl || result.imageUrl,
+            signed_image_url: result.signedImageUrl || undefined,
+            tos_key: result.key || undefined,
             image_id: result.imageId || ''
           }
         };

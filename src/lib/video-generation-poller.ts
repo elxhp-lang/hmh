@@ -12,11 +12,13 @@
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { SeedanceClient } from './seedance-client';
 import { VideoStorageService } from './tos-storage';
+import { TaskStateService } from './server/task-state-service';
 
 export class VideoGenerationPoller {
   // 延迟初始化，避免构建时检查环境变量
   private _supabase: ReturnType<typeof getSupabaseClient> | null = null;
   private _seedance: SeedanceClient | null = null;
+  private _taskStateService: TaskStateService | null = null;
   private isRunning = false;
   private pollInterval = 30000; // 30秒轮询一次
   private timer: NodeJS.Timeout | null = null;
@@ -33,6 +35,27 @@ export class VideoGenerationPoller {
       this._seedance = new SeedanceClient();
     }
     return this._seedance;
+  }
+
+  private get taskStateService() {
+    if (!this._taskStateService) {
+      this._taskStateService = new TaskStateService();
+    }
+    return this._taskStateService;
+  }
+
+  private async findWorkerTask(videoId: string, userId: string): Promise<{ id: string; sessionId: string | null } | null> {
+    const { data } = await this.supabase
+      .from('worker_tasks')
+      .select('id,session_id')
+      .eq('user_id', userId)
+      .eq('task_type', 'video_generate')
+      .contains('input_data', { video_id: videoId })
+      .order('created_at', { ascending: false })
+      .limit(1);
+    const first = Array.isArray(data) ? data[0] : null;
+    if (!first?.id) return null;
+    return { id: String(first.id), sessionId: first.session_id ? String(first.session_id) : null };
   }
 
   /**
@@ -138,10 +161,23 @@ export class VideoGenerationPoller {
       if (taskStatus.status === 'succeeded') {
         await this.handleSuccess(videoId, userId, taskStatus);
       } else if (taskStatus.status === 'failed') {
-        await this.handleFailure(videoId, taskStatus);
+        await this.handleFailure(videoId, taskStatus, video);
       } else if (taskStatus.status === 'running' || taskStatus.status === 'queued') {
         // 更新为 processing 状态
         await this.updateStatus(videoId, 'processing');
+        const workerTask = await this.findWorkerTask(videoId, userId);
+        if (workerTask) {
+          await this.taskStateService.transitionTask(workerTask.id, 'running', {
+            progress: taskStatus.status === 'running' ? 55 : 20,
+            output_data: { video_id: videoId, seedance_status: taskStatus.status },
+          });
+          if (workerTask.sessionId) {
+            await this.taskStateService.appendEvent(workerTask.id, userId, workerTask.sessionId, 'video_generate_polling', {
+              video_id: videoId,
+              seedance_status: taskStatus.status,
+            });
+          }
+        }
       }
 
     } catch (error) {
@@ -184,10 +220,29 @@ export class VideoGenerationPoller {
         .update({
           status: 'completed',
           tos_key: tosKey,
-          result_url: publicVideoUrl,  // 使用 result_url 字段
+          public_video_url: publicVideoUrl,
+          result_url: publicVideoUrl,  // 兼容旧读取口径
           updated_at: new Date().toISOString()
         })
         .eq('id', videoId);
+      const workerTask = await this.findWorkerTask(videoId, userId);
+      if (workerTask) {
+        await this.taskStateService.transitionTask(workerTask.id, 'succeeded', {
+          progress: 100,
+          completed_at: new Date().toISOString(),
+          output_data: {
+            video_id: videoId,
+            public_video_url: publicVideoUrl,
+            tos_key: tosKey,
+          },
+        });
+        if (workerTask.sessionId) {
+          await this.taskStateService.appendEvent(workerTask.id, userId, workerTask.sessionId, 'video_generate_succeeded', {
+            video_id: videoId,
+            public_video_url: publicVideoUrl,
+          });
+        }
+      }
 
       // 6. 发送用户消息通知（方案二）
       const videoName = taskStatus.content?.video_name || taskStatus.extra_info?.prompt?.substring(0, 20) || '未命名';
@@ -224,6 +279,23 @@ export class VideoGenerationPoller {
         updated_at: new Date().toISOString()
       })
       .eq('id', videoId);
+    if (video?.user_id) {
+      const workerTask = await this.findWorkerTask(videoId, String(video.user_id));
+      if (workerTask) {
+        await this.taskStateService.transitionTask(workerTask.id, 'failed', {
+          progress: 100,
+          completed_at: new Date().toISOString(),
+          error_message: errorReason,
+          output_data: { video_id: videoId },
+        });
+        if (workerTask.sessionId) {
+          await this.taskStateService.appendEvent(workerTask.id, String(video.user_id), workerTask.sessionId, 'video_generate_failed', {
+            video_id: videoId,
+            error: errorReason,
+          });
+        }
+      }
+    }
 
     // 发送用户消息通知（方案二：失败通知）
     await this.sendUserNotification(

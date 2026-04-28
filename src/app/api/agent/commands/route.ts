@@ -264,7 +264,7 @@ async function getVideoTasks(data: { status?: string; limit?: number }) {
   
   let query = client
     .from('videos')
-    .select('task_id, user_id, prompt, status, created_at, video_url')
+    .select('task_id, user_id, prompt, status, created_at, public_video_url, result_url')
     .order('created_at', { ascending: false })
     .limit(limit);
   

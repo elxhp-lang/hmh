@@ -409,6 +409,30 @@ function MaterialManager({ materials, onDelete, onEdit }: MaterialManagerProps) 
   );
 }
 
+function getTaskTypeLabel(taskType?: string): string {
+  const value = (taskType || '').trim();
+  if (!value) return '创意对话任务';
+  const labels: Record<string, string> = {
+    creative_chat: '创意对话任务',
+    video_generate: '视频生成任务',
+    image_generate: '图片生成任务',
+    batch_generate: '批量生成任务',
+  };
+  return labels[value] || value;
+}
+
+function getTaskStatusLabel(status: WorkerTaskItem['status']): string {
+  const labels: Record<WorkerTaskItem['status'], string> = {
+    queued: '排队中',
+    running: '执行中',
+    succeeded: '已完成',
+    partial_succeeded: '部分完成',
+    failed: '失败',
+    cancelled: '已取消',
+  };
+  return labels[status];
+}
+
 function TaskRail({
   tasks,
   onRetry,
@@ -434,9 +458,9 @@ function TaskRail({
       {tasks.slice(0, 12).map((task) => (
         <div key={task.id} className="rounded-lg border p-2 space-y-2">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-medium truncate">{task.task_type || 'creative_chat'}</p>
+            <p className="text-xs font-medium truncate">{getTaskTypeLabel(task.task_type)}</p>
             <Badge variant={task.status === 'failed' ? 'destructive' : 'outline'} className="text-[10px]">
-              {task.status}
+              {getTaskStatusLabel(task.status)}
             </Badge>
           </div>
           <div className="h-1.5 w-full rounded bg-muted overflow-hidden">

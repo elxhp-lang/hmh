@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     // 查询视频记录
     const { data: video, error } = await supabase
       .from('videos')
-      .select('id, user_id, tos_key, result_url, status')
+      .select('id, user_id, tos_key, public_video_url, result_url, status')
       .eq('id', videoId)
       .single();
 
@@ -75,7 +75,10 @@ export async function GET(request: NextRequest) {
     let videoUrl: string;
     const videoAny = video as any;
 
-    if (videoAny.tos_key) {
+    if (videoAny.public_video_url) {
+      console.log(`[Video URL] 使用公开 URL: ${(videoAny.public_video_url as string).substring(0, 50)}...`);
+      videoUrl = videoAny.public_video_url as string;
+    } else if (videoAny.tos_key) {
       // 优先使用 TOS 存储
       console.log(`[Video URL] 使用 TOS 存储: ${videoAny.tos_key}`);
       videoUrl = await VideoStorageService.getVideoUrl(videoAny.tos_key as string, expireTime);
@@ -91,7 +94,7 @@ export async function GET(request: NextRequest) {
       success: true,
       url: videoUrl,
       expireTime,
-      source: videoAny.tos_key ? 'tos' : 'temp',
+      source: videoAny.public_video_url ? 'public' : (videoAny.tos_key ? 'tos' : 'temp'),
     });
   } catch (error) {
     console.error('获取视频 URL 失败:', error);

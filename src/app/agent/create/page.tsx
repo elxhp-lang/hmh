@@ -615,7 +615,6 @@ export default function CreativeAgentPageNew() {
   const lastStreamUiFlushRef = useRef(0);
   const historyAbortRef = useRef<AbortController | null>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
-  const lastFailedUserTextRef = useRef<string | null>(null);
   const activeSessionIdRef = useRef<string | null>(null);
   const previousTaskStatusRef = useRef<Map<string, string>>(new Map());
   const notifiedTerminalTaskRef = useRef<Set<string>>(new Set());
@@ -867,19 +866,6 @@ export default function CreativeAgentPageNew() {
     setSessionPhase('idle');
   };
 
-  const handleRetryLastUserMessage = () => {
-    if (!lastUserMessage || isLoading) return;
-    setSendError(null);
-    handleSend(lastUserMessage.content);
-  };
-
-  const handleRetryFailedMessage = () => {
-    const failedText = lastFailedUserTextRef.current;
-    if (!failedText || isLoading) return;
-    setSendError(null);
-    handleSend(failedText);
-  };
-
   const handleMemoryDecision = async (
     messageId: string,
     action: 'confirm' | 'reject' | 'never_ask',
@@ -929,7 +915,7 @@ export default function CreativeAgentPageNew() {
           setHistory(historyData.videos?.slice(0, 8).map((v: any) => ({
             id: v.id,
             title: v.prompt?.substring(0, 20) || '视频创作',
-            thumbnail: v.video_url || v.result_url || v.cover_url,
+            thumbnail: v.public_video_url || v.video_url || v.result_url || v.cover_url,
             status: v.status === 'completed' || v.status === 'succeeded' ? 'completed' : 'processing',
             createdAt: new Date(v.created_at)
           })) || []);
@@ -993,7 +979,7 @@ export default function CreativeAgentPageNew() {
               setNewVideoNotification({
                 video_id: video.video_id || video.id,
                 video_name: video.video_name,
-                public_video_url: video.public_video_url || video.video_url,
+                public_video_url: video.public_video_url || video.video_url || video.result_url,
                 status: video.status
               });
               setHasNewVideo(true);
@@ -1084,9 +1070,10 @@ export default function CreativeAgentPageNew() {
           .map((item, idx) => {
             const result = (item?.output_data?.result || {}) as Record<string, unknown>;
             const imageCandidates = [
-              typeof result.image_url === 'string' ? result.image_url : '',
-              typeof result.preview_image_url === 'string' ? result.preview_image_url : '',
               typeof result.public_image_url === 'string' ? result.public_image_url : '',
+              typeof result.preview_image_url === 'string' ? result.preview_image_url : '',
+              typeof result.signed_image_url === 'string' ? result.signed_image_url : '',
+              typeof result.image_url === 'string' ? result.image_url : '',
             ].filter(Boolean);
             const videoCandidates = [
               typeof result.public_video_url === 'string' ? result.public_video_url : '',
@@ -1486,7 +1473,6 @@ export default function CreativeAgentPageNew() {
       streamingMessageIdRef.current = null;
       streamAbortRef.current = null;
       setSessionPhase('idle');
-      lastFailedUserTextRef.current = text;
       setSendError('发送失败，网络波动或服务超时。');
     }
   };
@@ -1745,15 +1731,6 @@ export default function CreativeAgentPageNew() {
                   停止
                 </Button>
               )}
-              {!isLoading && lastUserMessage && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleRetryLastUserMessage}
-                >
-                  重试上条
-                </Button>
-              )}
               {sessionPhase !== 'idle' && (
                 <Badge variant="secondary" className="text-xs">
                   {sessionPhase === 'bootstrapping' ? '初始化中' : sessionPhase === 'switching' ? '切换中' : '生成中'}
@@ -1894,11 +1871,8 @@ export default function CreativeAgentPageNew() {
           {/* 输入区 - shrink-0 防止被压缩 */}
           <div className="shrink-0 px-6 py-4 border-t bg-background/90 backdrop-blur">
             {sendError && (
-              <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive flex items-center justify-between gap-2">
+              <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                 <span>{sendError}</span>
-                <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={handleRetryFailedMessage}>
-                  立即重试
-                </Button>
               </div>
             )}
             <HybridInput

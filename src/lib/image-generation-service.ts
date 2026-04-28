@@ -9,7 +9,7 @@
  */
 
 import { ImageGenerationClient, Config } from 'coze-coding-dev-sdk';
-import { LearningLibraryStorage } from './tos-storage';
+import { LearningLibraryStorage, VideoStorageService } from './tos-storage';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 
 export interface GenerateFirstFrameRequest {
@@ -24,6 +24,8 @@ export interface GenerateFirstFrameRequest {
 export interface GenerateFirstFrameResult {
   success: boolean;
   imageUrl?: string;
+  publicImageUrl?: string;
+  signedImageUrl?: string;
   imageId?: string;
   key?: string;
   error?: string;
@@ -105,13 +107,17 @@ export class ImageGenerationService {
       const localPath = await this.downloadImage(imageUrl);
       const tosKey = await this.uploadToTOS(localPath, `first_frame_${Date.now()}.png`);
       const signedUrl = await LearningLibraryStorage.getLearningVideoUrl(tosKey);
+      const publicReadable = await VideoStorageService.setPublicRead(tosKey);
+      const publicUrl = publicReadable ? VideoStorageService.getPublicUrl(tosKey) : signedUrl;
 
       // 保存到数据库
-      const imageId = await this.saveToDatabase(tosKey, signedUrl, finalPrompt);
+      const imageId = await this.saveToDatabase(tosKey, publicUrl, finalPrompt);
 
       return {
         success: true,
-        imageUrl: signedUrl,
+        imageUrl: publicUrl,
+        publicImageUrl: publicUrl,
+        signedImageUrl: signedUrl,
         imageId,
         key: tosKey
       };

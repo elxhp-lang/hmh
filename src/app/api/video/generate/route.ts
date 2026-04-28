@@ -3,9 +3,25 @@ import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { SeedanceClient, Content, VideoRatio, SeedanceModel } from '@/lib/seedance-client';
 import { VideoStorageService } from '@/lib/tos-storage';
 import { fail, normalizeText, requireAuth } from '@/lib/server/api-kit';
+import { TaskStateService } from '@/lib/server/task-state-service';
 
 // 初始化 Seedance 客户端
 const seedanceClient = new SeedanceClient();
+const taskStateService = new TaskStateService();
+
+async function findVideoWorkerTaskId(userId: string, videoId: string): Promise<string | null> {
+  const supabase = getSupabaseClient();
+  const { data } = await supabase
+    .from('worker_tasks')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('task_type', 'video_generate')
+    .contains('input_data', { video_id: videoId })
+    .order('created_at', { ascending: false })
+    .limit(1);
+  const first = Array.isArray(data) ? data[0] : null;
+  return first?.id ? String(first.id) : null;
+}
 
 function deriveAutoTags(input: {
   prompt?: string | null;
@@ -148,6 +164,28 @@ export async function POST(request: NextRequest) {
     if (insertError) {
       throw new Error(`创建任务失败: ${insertError.message}`);
     }
+    const videoId = String((videoTask as any).id);
+
+    let workerTaskId: string | null = null;
+    if (sessionId) {
+      const ensured = await taskStateService.ensureTask({
+        userId: decoded.userId,
+        sessionId: String(sessionId),
+        taskType: 'video_generate',
+        clientRequestId: `video_generate_${videoId}`,
+        inputData: {
+          video_id: videoId,
+          prompt,
+          ratio,
+          duration,
+          task_type: taskType,
+        },
+      });
+      workerTaskId = ensured.id;
+      await taskStateService.appendEvent(ensured.id, decoded.userId, String(sessionId), 'video_generate_submitted', {
+        video_id: videoId,
+      });
+    }
 
     // 构建 Seedance 2.0 内容数组
     const content: Content[] = [];
@@ -225,12 +263,24 @@ export async function POST(request: NextRequest) {
       await supabase
         .from('videos')
         .update({ task_id: taskResponse.id })
-        .eq('id', videoTask!.id);
+        .eq('id', videoId);
+
+      if (workerTaskId && sessionId) {
+        await taskStateService.transitionTask(workerTaskId, 'running', {
+          progress: 25,
+          output_data: { video_id: videoId, seedance_task_id: taskResponse.id },
+        });
+        await taskStateService.appendEvent(workerTaskId, decoded.userId, String(sessionId), 'video_generate_processing', {
+          video_id: videoId,
+          seedance_task_id: taskResponse.id,
+        });
+      }
 
       // 返回任务信息，让前端轮询
       return NextResponse.json({
         success: true,
-        taskId: videoTask!.id,
+        taskId: videoId,
+        workerTaskId,
         seedanceTaskId: taskResponse.id,
         status: 'processing',
         message: '任务已提交，请轮询查询状态',
@@ -244,7 +294,21 @@ export async function POST(request: NextRequest) {
           status: 'failed',
           error_message: apiError instanceof Error ? apiError.message : 'API调用失败',
         })
-        .eq('id', videoTask!.id);
+        .eq('id', videoId);
+
+      const linkedWorkerTaskId = workerTaskId || await findVideoWorkerTaskId(decoded.userId, videoId);
+      if (linkedWorkerTaskId && sessionId) {
+        await taskStateService.transitionTask(linkedWorkerTaskId, 'failed', {
+          progress: 100,
+          completed_at: new Date().toISOString(),
+          error_message: apiError instanceof Error ? apiError.message : 'API调用失败',
+          output_data: { video_id: videoId },
+        });
+        await taskStateService.appendEvent(linkedWorkerTaskId, decoded.userId, String(sessionId), 'video_generate_failed', {
+          video_id: videoId,
+          error: apiError instanceof Error ? apiError.message : 'API调用失败',
+        });
+      }
 
       throw apiError;
     }
@@ -324,6 +388,7 @@ export async function GET(request: NextRequest) {
                 }
               );
               console.log(`[Video] 视频已存储到 TOS: ${tosKey}`);
+              await VideoStorageService.setPublicRead(tosKey);
               
               // 如果有尾帧图片，也存储到 TOS
               if (seedanceTask.content.last_frame_url) {
@@ -344,12 +409,17 @@ export async function GET(request: NextRequest) {
               // 如果 TOS 存储失败，仍然使用临时 URL
             }
             
+            const publicVideoUrl = tosKey
+              ? VideoStorageService.getVideoPublicUrl(tosKey)
+              : seedanceTask.content.video_url;
+
             // 更新数据库
             await supabase
               .from('videos')
               .update({
                 status: 'completed',
-                result_url: seedanceTask.content.video_url,
+                public_video_url: publicVideoUrl,
+                result_url: publicVideoUrl,
                 tos_key: tosKey,
                 last_frame_url: seedanceTask.content.last_frame_url,
                 last_frame_tos_key: lastFrameTosKey,
@@ -357,6 +427,25 @@ export async function GET(request: NextRequest) {
                 total_tokens: totalTokens,
               })
               .eq('id', video.id);
+            if (video.session_id) {
+              const workerTaskId = await findVideoWorkerTaskId(decoded.userId, String(video.id));
+              if (workerTaskId) {
+                await taskStateService.transitionTask(workerTaskId, 'succeeded', {
+                  progress: 100,
+                  completed_at: new Date().toISOString(),
+                  output_data: {
+                    video_id: video.id,
+                    seedance_task_id: video.task_id,
+                    public_video_url: publicVideoUrl,
+                    tos_key: tosKey,
+                  },
+                });
+                await taskStateService.appendEvent(workerTaskId, decoded.userId, String(video.session_id), 'video_generate_succeeded', {
+                  video_id: video.id,
+                  public_video_url: publicVideoUrl,
+                });
+              }
+            }
 
             // 自动标签识别：只从标签池里挑选，未命中再走最小兜底
             try {
@@ -404,7 +493,8 @@ export async function GET(request: NextRequest) {
             });
 
             video.status = 'completed';
-            video.result_url = seedanceTask.content.video_url;
+            video.public_video_url = publicVideoUrl;
+            video.result_url = publicVideoUrl;
             video.tos_key = tosKey;
             video.cost = cost;
           } else if (seedanceTask.status === 'failed') {
@@ -415,6 +505,21 @@ export async function GET(request: NextRequest) {
                 error_message: seedanceTask.error?.message || '视频生成失败',
               })
               .eq('id', video.id);
+            if (video.session_id) {
+              const workerTaskId = await findVideoWorkerTaskId(decoded.userId, String(video.id));
+              if (workerTaskId) {
+                await taskStateService.transitionTask(workerTaskId, 'failed', {
+                  progress: 100,
+                  completed_at: new Date().toISOString(),
+                  error_message: seedanceTask.error?.message || '视频生成失败',
+                  output_data: { video_id: video.id, seedance_task_id: video.task_id },
+                });
+                await taskStateService.appendEvent(workerTaskId, decoded.userId, String(video.session_id), 'video_generate_failed', {
+                  video_id: video.id,
+                  error: seedanceTask.error?.message || '视频生成失败',
+                });
+              }
+            }
 
             video.status = 'failed';
             video.error_message = seedanceTask.error?.message;

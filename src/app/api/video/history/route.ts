@@ -5,6 +5,11 @@ import jwt, { TokenExpiredError, JsonWebTokenError } from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
+function isStablePublicUrl(url: unknown): url is string {
+  if (typeof url !== 'string' || !url.startsWith('http')) return false;
+  return !url.includes('X-Tos-Algorithm=') && !url.includes('X-Amz-Algorithm=');
+}
+
 /**
  * 视频历史记录 API
  * GET /api/video/history
@@ -39,7 +44,7 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await client
       .from('videos')
-      .select('id, task_id, task_type, status, prompt, result_url, tos_key, audio_url, cover_url, ratio, duration, model, created_at')
+      .select('id, task_id, task_type, status, prompt, public_video_url, result_url, tos_key, audio_url, cover_url, ratio, duration, model, created_at')
       .eq('user_id', decoded.userId)
       .order('created_at', { ascending: false })
       .limit(limit);
@@ -51,12 +56,22 @@ export async function GET(request: NextRequest) {
     // 为每个视频生成签名 URL（24小时有效期）
     const videosWithUrl = await Promise.all(
       (data || []).map(async (video: any) => {
-        let videoUrl = video.result_url;
+        let videoUrl = video.public_video_url || video.result_url;
 
         // 如果有 TOS key，生成签名 URL
         if (video.tos_key && video.status === 'completed') {
           try {
-            videoUrl = await VideoStorageService.getVideoUrl(video.tos_key as string, 86400);
+            videoUrl = video.public_video_url || VideoStorageService.getVideoPublicUrl(video.tos_key as string);
+            if (!video.public_video_url) {
+              await client
+                .from('videos')
+                .update({
+                  public_video_url: videoUrl,
+                  result_url: isStablePublicUrl(video.result_url) ? video.result_url : videoUrl,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', video.id);
+            }
           } catch (e) {
             console.error(`生成签名 URL 失败: ${video.id}`, e);
             // 失败时使用原始 URL

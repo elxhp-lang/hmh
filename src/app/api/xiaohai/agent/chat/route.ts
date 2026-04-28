@@ -167,7 +167,6 @@ async function getAgentSystemPrompt(): Promise<string> {
 const MAX_ITERATIONS = 15;
 const MAX_TOOL_STRING_LEN = 2000;
 const HIGH_RISK_TOOLS = new Set(['delete_material', 'clear_session', 'update_material']);
-const GENERATION_TOOLS = new Set(['submit_video_task', 'generate_first_frame', 'batch_generate']);
 const LONG_RUNNING_TOOLS = new Set([
   'submit_video_task',
   'generate_first_frame',
@@ -233,16 +232,6 @@ function validateToolCall(toolName: string, params: Record<string, any>): string
 
 function isLongRunningTool(toolName: string): boolean {
   return LONG_RUNNING_TOOLS.has(toolName);
-}
-
-function isStatusQueryIntent(message: string): boolean {
-  const text = (message || '').toLowerCase();
-  if (!text) return false;
-  const statusKeywords = ['进度', '状态', '查询', '查一下', '看看任务', 'query', 'status', 'task'];
-  const generationKeywords = ['生成', '重做', '再来', '继续生成', '重新生成'];
-  const hasStatusIntent = statusKeywords.some((k) => text.includes(k));
-  const hasGenerationIntent = generationKeywords.some((k) => text.includes(k));
-  return hasStatusIntent && !hasGenerationIntent;
 }
 
 function extractMemoryCandidate(userMessageContent: string): MemoryCandidate | null {
@@ -502,8 +491,6 @@ export async function POST(request: NextRequest) {
       
       userMessageContent += `\n\n--- 用户上传的素材 ---\n${attachmentDescs.join('\n')}`;
     }
-    const statusQueryIntent = isStatusQueryIntent(userMessageContent);
-
     // 4. 获取工具（webSearchEnabled 参数传递给工具层，由AI自主决定是否使用联网搜索）
     const tools = toolsService.getAllTools(webSearchEnabled);
 
@@ -763,24 +750,30 @@ export async function POST(request: NextRequest) {
                   continue;
                 }
 
-                if (statusQueryIntent && GENERATION_TOOLS.has(toolName)) {
-                  const blockedResult = {
-                    success: false,
-                    error: '当前是进度查询场景，已阻止重新生成任务。请使用 query_task_status 查询任务状态。',
-                    data: null,
-                  };
-                  sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(blockedResult) });
-                  messages.push({
-                    role: 'user',
-                    content: `[工具调用结果]\n工具: ${toolName}\n结果: ${JSON.stringify(blockedResult)}`,
-                  });
-                  hadToolExecution = true;
-                  continue;
-                }
-
                 if (isLongRunningTool(toolName) && workerTaskId && userId && session?.id) {
+                  let runtimeTaskId = workerTaskId;
+                  // 图片生成任务桥接到独立 worker task，确保任务栏可单独显示与追踪
+                  if (toolName === 'generate_first_frame') {
+                    const ensuredImageTask = await taskStateService.ensureTask({
+                      userId,
+                      sessionId: session.id,
+                      taskType: 'image_generate',
+                      clientRequestId: `${workerTaskId}:generate_first_frame:${Date.now()}`,
+                      inputData: {
+                        parent_task_id: workerTaskId,
+                        tool: toolName,
+                        params: toolParams,
+                      },
+                    });
+                    runtimeTaskId = ensuredImageTask.id;
+                    await taskStateService.appendEvent(runtimeTaskId, userId, session.id, 'image_generate_submitted', {
+                      parent_task_id: workerTaskId,
+                      tool: toolName,
+                    });
+                  }
+
                   await taskStateService.appendTaskItem({
-                    taskId: workerTaskId,
+                    taskId: runtimeTaskId,
                     userId,
                     sessionId: session.id,
                     status: 'running',
@@ -789,49 +782,66 @@ export async function POST(request: NextRequest) {
                   void (async () => {
                     try {
                       const result = await (tools as any)[toolName](toolParams);
+                      const normalizedResult = (result && typeof result === 'object' ? result : { success: false, error: '工具返回无效结果' }) as Record<string, any>;
+                      const rawData = (normalizedResult.data && typeof normalizedResult.data === 'object')
+                        ? (normalizedResult.data as Record<string, any>)
+                        : {};
+                      const canonicalTaskId =
+                        (typeof rawData.seedance_task_id === 'string' && rawData.seedance_task_id) ||
+                        (typeof rawData.task_id === 'string' && rawData.task_id) ||
+                        runtimeTaskId;
+                      // 对 Agent 统一暴露单一任务 ID（优先工具原生 ID）
+                      normalizedResult.data = {
+                        ...rawData,
+                        task_id: canonicalTaskId,
+                        query_id: canonicalTaskId,
+                        worker_task_id: runtimeTaskId,
+                      };
                       await taskStateService.appendTaskItem({
-                        taskId: workerTaskId,
+                        taskId: runtimeTaskId,
                         userId,
                         sessionId: session.id,
-                        status: result?.success ? 'succeeded' : 'failed',
+                        status: normalizedResult?.success ? 'succeeded' : 'failed',
                         inputData: { tool: toolName, params: toolParams },
-                        outputData: { result: result?.data ?? null },
-                        errorMessage: result?.success ? null : (result?.error || '工具执行失败'),
+                        outputData: { result: normalizedResult.data ?? null },
+                        errorMessage: normalizedResult?.success ? null : (normalizedResult?.error || '工具执行失败'),
                       });
-                      await taskStateService.appendEvent(workerTaskId, userId, session.id, result?.success ? 'task_item_succeeded' : 'task_item_failed', {
+                      await taskStateService.appendEvent(runtimeTaskId, userId, session.id, normalizedResult?.success ? 'task_item_succeeded' : 'task_item_failed', {
                         tool: toolName,
-                        result: result?.data ?? null,
-                        error: result?.success ? null : (result?.error || '工具执行失败'),
+                        result: normalizedResult.data ?? null,
+                        error: normalizedResult?.success ? null : (normalizedResult?.error || '工具执行失败'),
                       });
-                      await taskStateService.aggregateTaskFromItems(workerTaskId);
+                      await taskStateService.aggregateTaskFromItems(runtimeTaskId);
                     } catch (toolError) {
                       await taskStateService.appendTaskItem({
-                        taskId: workerTaskId,
+                        taskId: runtimeTaskId,
                         userId,
                         sessionId: session.id,
                         status: 'failed',
                         inputData: { tool: toolName, params: toolParams },
                         errorMessage: toolError instanceof Error ? toolError.message : '工具执行失败',
                       });
-                      await taskStateService.appendEvent(workerTaskId, userId, session.id, 'task_item_failed', {
+                      await taskStateService.appendEvent(runtimeTaskId, userId, session.id, 'task_item_failed', {
                         tool: toolName,
                         error: toolError instanceof Error ? toolError.message : '工具执行失败',
                       });
-                      await taskStateService.aggregateTaskFromItems(workerTaskId);
+                      await taskStateService.aggregateTaskFromItems(runtimeTaskId);
                     }
                   })();
 
                   const asyncAck = {
                     success: true,
                     data: {
-                      task_id: workerTaskId,
+                      task_id: runtimeTaskId,
+                      query_id: runtimeTaskId,
+                      worker_task_id: runtimeTaskId,
                       queued_tool: toolName,
                     },
                     message: '工具已转后台执行',
                   };
                   sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(asyncAck) });
                   emitPart(buildToolResultCardPart(toolName, asyncAck), 'tool_result');
-                  sendEvent({ type: 'task', data: { taskId: workerTaskId, status: 'running', note: `已转后台执行: ${toolName}` } });
+                  sendEvent({ type: 'task', data: { taskId: runtimeTaskId, status: 'running', note: `已转后台执行: ${toolName}` } });
                   messages.push({ role: 'user', content: `[工具调用结果]\n工具: ${toolName}\n结果: ${JSON.stringify(asyncAck)}` });
                   hadToolExecution = true;
                   continue;

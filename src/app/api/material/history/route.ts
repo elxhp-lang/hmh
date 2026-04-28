@@ -3,6 +3,11 @@ import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { VideoStorageService } from '@/lib/tos-storage';
 import { fail, normalizeText, requireAuth, toPositiveInt } from '@/lib/server/api-kit';
 
+function isStablePublicUrl(url: unknown): url is string {
+  if (typeof url !== 'string' || !url.startsWith('http')) return false;
+  return !url.includes('X-Tos-Algorithm=') && !url.includes('X-Amz-Algorithm=');
+}
+
 /**
  * 素材历史 API
  * GET /api/material/history
@@ -93,6 +98,7 @@ export async function GET(request: NextRequest) {
       'is_remix',
       'task_type',
       'tos_key',
+      'public_video_url',
       'result_url',
       'ratio',
       'duration',
@@ -239,7 +245,7 @@ export async function GET(request: NextRequest) {
     if (videosData) {
       for (const video of videosData) {
         const v = video as any;
-        const urlKey = v.result_url || v.tos_key || v.id;
+        const urlKey = v.public_video_url || v.result_url || v.tos_key || v.id;
         if (!videoUrls.has(urlKey as string)) {
           videoUrls.add(urlKey as string);
           mergedVideos.push({
@@ -264,6 +270,7 @@ export async function GET(request: NextRequest) {
             task_type: v.task_type || 'text_to_video',
             status: v.status || 'completed',
             tos_key: v.tos_key,
+            public_video_url: (v.public_video_url as string) || null,
             result_url: v.result_url,
             ratio: v.ratio || '16:9',
             duration: v.duration || 0,
@@ -272,7 +279,7 @@ export async function GET(request: NextRequest) {
             error_message: v.error_message,
             created_at: v.created_at,
             model: v.model || 'doubao-seedance-2-0',
-            video_url: v.result_url,
+            video_url: (v.public_video_url as string) || v.result_url,
             source: 'videos',
           });
         }
@@ -338,12 +345,20 @@ export async function GET(request: NextRequest) {
     // 为完成的视频生成 URL
     const videosWithUrl = await Promise.all(
       paginatedVideos.map(async (video) => {
-        let videoUrl = video.result_url || video.video_url;
+        let videoUrl = (video as any).public_video_url || video.result_url || video.video_url;
 
         // 如果没有 result_url，但有 TOS key 且状态为完成，生成签名 URL
         if (!videoUrl && video.tos_key && video.status === 'completed') {
           try {
-            videoUrl = await VideoStorageService.getVideoUrl(video.tos_key, 86400);
+            videoUrl = VideoStorageService.getVideoPublicUrl(video.tos_key);
+            await client
+              .from('videos')
+              .update({
+                public_video_url: videoUrl,
+                result_url: isStablePublicUrl(video.result_url) ? video.result_url : videoUrl,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', video.id);
           } catch (e) {
             console.error(`生成签名 URL 失败: ${video.id}`, e);
           }

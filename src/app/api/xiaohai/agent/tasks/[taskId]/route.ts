@@ -69,9 +69,10 @@ export async function GET(
           const data = raw as Record<string, unknown>;
           const result = (data.result && typeof data.result === 'object') ? (data.result as Record<string, unknown>) : data;
           const imageCandidates = [
-            typeof result.image_url === 'string' ? result.image_url : null,
-            typeof result.preview_image_url === 'string' ? result.preview_image_url : null,
             typeof result.public_image_url === 'string' ? result.public_image_url : null,
+            typeof result.preview_image_url === 'string' ? result.preview_image_url : null,
+            typeof result.signed_image_url === 'string' ? result.signed_image_url : null,
+            typeof result.image_url === 'string' ? result.image_url : null,
           ];
           const videoCandidates = [
             typeof result.public_video_url === 'string' ? result.public_video_url : null,

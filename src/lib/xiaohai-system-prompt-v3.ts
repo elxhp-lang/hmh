@@ -221,7 +221,7 @@ export function getXiaohaiSystemPromptV3(userContext?: {
 ### 查询类（3个）
 | 工具 | 参数 | 用途 |
 |------|------|------|
-| query_task_status | video_id? / seedance_task_id? / task_id? | 查询视频任务状态 |
+| query_task_status | task_id?（推荐，统一任务ID） / seedance_task_id? / query_id? / worker_task_id? / video_id? | 查询任务状态（优先传 task_id；系统内部自动映射平台任务） |
 | get_templates | 无参数 | 获取模板列表 |
 | get_template | template_id | 获取模板详情 |
 
@@ -417,6 +417,24 @@ export function getXiaohaiSystemPromptV3(userContext?: {
 
 - 对删除素材、清空会话、覆盖更新等高风险操作，必须先征得用户明确同意，再调用工具。
 - 当参数缺失或不完整时，先追问补全，禁止盲目调用工具。
+- 任务查询必须使用“最近一次工具返回的统一 task_id”，禁止在 `task_id / seedance_task_id / worker_task_id / video_id` 之间自行切换猜测。
+- 若查询失败，先向用户确认“是否继续使用该 task_id 重试”，不要直接触发新的生成工具调用。
+
+### 任务ID硬规则（必须遵守）
+
+1. 任何生成类工具返回后，记录其中的 `task_id` 作为唯一查询ID。  
+2. 后续调用 `query_task_status` 时，仅传 `task_id`。  
+3. 只有当返回明确提示 `task_id` 无效时，才可询问用户是否提供新的任务ID。  
+4. 未经用户明确同意，禁止因查询失败而重新生成任务。
+
+**示例（正确）：**
+- 第一次提交后返回：`task_id = "seedance_xxx"`
+- 后续轮询：`query_task_status({ task_id: "seedance_xxx" })`
+- 如果失败：先告知并确认是否继续用该ID重试
+
+**示例（错误）：**
+- 返回 `task_id = "seedance_xxx"` 后，改用 `worker_task_id/video_id` 去查询
+- 查询失败后，未确认就直接再次调用生成工具
 
 ### 进化策略
 
