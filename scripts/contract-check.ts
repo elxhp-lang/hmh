@@ -77,7 +77,6 @@ async function run(): Promise<void> {
     const { data, error } = await supabase
       .from('learning_library')
       .select('id,video_key')
-      .not('video_key', 'is', null)
       .limit(200);
 
     if (error) {
@@ -91,6 +90,7 @@ async function run(): Promise<void> {
       const invalid = rows.filter(
         (row) =>
           typeof row.video_key === 'string' &&
+          row.video_key.length > 0 &&
           !row.video_key.startsWith('users/') &&
           !row.video_key.startsWith('learning-library/') // legacy compatibility
       );

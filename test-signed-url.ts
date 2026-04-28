@@ -44,8 +44,9 @@ async function test() {
     } else {
       console.log('\n❌ 签名 URL 访问失败');
     }
-  } catch (e: any) {
-    console.error('请求失败:', e.message);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'unknown error';
+    console.error('请求失败:', message);
   }
 }
 

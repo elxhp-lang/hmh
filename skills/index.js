@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 /**
  * Workflow Automation
  * Chains multiple skills together into automated workflows
@@ -420,3 +421,6 @@ function rollback(context, checkpoint) {
     restored: checkpoint 
   };
 }
+
+module.exports.validate = validate;
+module.exports.rollback = rollback;
