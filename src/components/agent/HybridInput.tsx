@@ -172,7 +172,6 @@ export function HybridInput({
   onChange,
   onSend,
   onFileUpload,
-  onUploadComplete,
   onLinkSubmit,
   webSearchEnabled = false,
   onWebSearchToggle,

@@ -137,6 +137,17 @@ interface ParsedToolCall {
   params: Record<string, unknown>;
 }
 
+interface ToolCallCandidate {
+  name?: string;
+  parameters?: Record<string, unknown>;
+  params?: Record<string, unknown>;
+  function?: {
+    name?: string;
+    arguments?: string | Record<string, unknown>;
+  };
+  arguments?: string | Record<string, unknown>;
+}
+
 function parseToolCalls(text: string): ParsedToolCall[] {
   const results: ParsedToolCall[] = [];
   
@@ -149,7 +160,7 @@ function parseToolCalls(text: string): ParsedToolCall[] {
     try {
       const parsed = JSON.parse(match[1]);
       if (Array.isArray(parsed)) {
-        parsed.forEach((item: any) => {
+        (parsed as ToolCallCandidate[]).forEach((item) => {
           if (item.name) {
             const toolName = TOOL_NAME_MAP[item.name.toLowerCase()] || item.name;
             results.push({ name: toolName, params: item.parameters || item.params || {} });
@@ -173,7 +184,7 @@ function parseToolCalls(text: string): ParsedToolCall[] {
           results.push({ name: toolName, params: parsed.parameters || parsed.params || {} });
         }
         if (Array.isArray(parsed)) {
-          parsed.forEach((item: any) => {
+          (parsed as ToolCallCandidate[]).forEach((item) => {
             if (item.name) {
               const toolName = TOOL_NAME_MAP[item.name.toLowerCase()] || item.name;
               results.push({ name: toolName, params: item.parameters || item.params || {} });
@@ -204,7 +215,7 @@ function parseToolCalls(text: string): ParsedToolCall[] {
     while ((match = pattern4.exec(text)) !== null) {
       try {
         const arr = JSON.parse('[' + match[1] + ']');
-        arr.forEach((tc: any) => {
+        (arr as ToolCallCandidate[]).forEach((tc) => {
           const name = tc.function?.name || tc.name;
           const args = tc.function?.arguments || tc.arguments || {};
           const parsedArgs = typeof args === 'string' ? JSON.parse(args) : args;
@@ -264,7 +275,7 @@ export async function POST(request: NextRequest) {
     const { message, conversationId, webSearchEnabled = false } = await request.json();
     const convId = conversationId || userId;
 
-    let finalMessage = message;
+    const finalMessage = message;
 
     // 获取或创建对话历史
     if (!conversationHistory.has(convId)) {
@@ -352,13 +363,18 @@ export async function POST(request: NextRequest) {
             const toolResult = await toolExecutor.execute(toolCall.name, toolCall.params);
             
             // 检查工具执行是否成功
-            if (toolResult && typeof toolResult === 'object' && 'success' in toolResult && !(toolResult as any).success) {
+            if (
+              toolResult &&
+              typeof toolResult === 'object' &&
+              'success' in toolResult &&
+              (toolResult as { success?: boolean }).success === false
+            ) {
               // 工具执行失败，发送错误信息
               controller.enqueue(
                 encoder.encode(`data: ${JSON.stringify({ 
                   type: 'tool_error', 
                   name: toolCall.name, 
-                  error: (toolResult as any).error || '工具执行失败' 
+                  error: (toolResult as { error?: string }).error || '工具执行失败' 
                 })}\n\n`)
               );
             } else {

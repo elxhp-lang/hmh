@@ -6,6 +6,13 @@ import { HeaderUtils } from 'coze-coding-dev-sdk';
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+interface LearningRow {
+  id: string;
+}
+function isLearningRow(value: unknown): value is LearningRow {
+  if (!value || typeof value !== 'object') return false;
+  return typeof (value as Record<string, unknown>).id === 'string';
+}
 
 /**
  * 确认上传完成并创建学习记录
@@ -35,8 +42,11 @@ export async function POST(request: NextRequest) {
     }
 
     // 验证文件归属（确保是用户自己的文件）
-    const expectedPrefix = `learning-library/${decoded.userId}/`;
-    if (!fileKey.startsWith(expectedPrefix)) {
+    const expectedPrefixes = [
+      `users/${decoded.userId}/learning-videos/`,
+      `learning-library/${decoded.userId}/`, // legacy compatibility
+    ];
+    if (!expectedPrefixes.some((prefix) => fileKey.startsWith(prefix))) {
       return NextResponse.json({ error: '无权访问此文件' }, { status: 403 });
     }
 
@@ -80,24 +90,27 @@ export async function POST(request: NextRequest) {
     if (!learning) {
       return NextResponse.json({ error: '未找到上传记录' }, { status: 400 });
     }
+    if (!isLearningRow(learning)) {
+      return NextResponse.json({ error: '学习记录数据异常' }, { status: 500 });
+    }
 
-    const learningAny = learning as any;
+    const learningRow = learning;
 
     // 更新学习记录的 video_url
     await client
       .from('learning_library')
       .update({ video_url: publicUrl })
-      .eq('id', learningAny.id as string);
+      .eq('id', learningRow.id);
 
     // 异步启动分析（使用公开 URL）
     setTimeout(() => {
-      startVideoAnalysis(learningAny.id as string, publicUrl, fileName, customHeaders);
+      startVideoAnalysis(learningRow.id, publicUrl, fileName, customHeaders);
     }, 1000);
 
     return NextResponse.json({
       success: true,
       learning: {
-        id: learningAny.id,
+        id: learningRow.id,
         name: fileName,
         size: fileSize,
         videoUrl: publicUrl,

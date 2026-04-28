@@ -5,7 +5,6 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,8 +27,6 @@ export async function POST(request: NextRequest) {
     // 3. 其他机制
 
     // 暂时只记录日志，后续可以扩展
-    const supabase = getSupabaseClient();
-
     // 可以在这里添加通知逻辑
     // 例如：写入 notifications 表
 

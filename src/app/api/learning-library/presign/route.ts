@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { LearningLibraryStorage } from '@/lib/tos-storage';
 import jwt from 'jsonwebtoken';
 
@@ -46,8 +45,7 @@ export async function POST(request: NextRequest) {
     // 生成预签名上传URL
     const { uploadUrl, fileKey } = await LearningLibraryStorage.getPresignedUploadUrl(
       decoded.userId,
-      fileName,
-      fileType
+      fileName
     );
 
     return NextResponse.json({

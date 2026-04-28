@@ -4,6 +4,21 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+interface LoginUserRow {
+  id: string;
+  username: string;
+  email?: string | null;
+  role?: string | null;
+  status?: string | null;
+  display_name?: string | null;
+  avatar_url?: string | null;
+  password_hash: string;
+}
+function isLoginUserRow(value: unknown): value is LoginUserRow {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.id === 'string' && typeof row.username === 'string' && typeof row.password_hash === 'string';
+}
 
 /**
  * 用户登录
@@ -52,7 +67,11 @@ export async function POST(request: NextRequest) {
     }
 
     // 验证密码
-    const isValidPassword = await bcrypt.compare(password, (user as any).password_hash as string);
+    if (!isLoginUserRow(user)) {
+      return NextResponse.json({ error: '用户数据异常' }, { status: 500 });
+    }
+    const loginUser = user;
+    const isValidPassword = await bcrypt.compare(password, loginUser.password_hash);
     if (!isValidPassword) {
       return NextResponse.json(
         { error: '用户名或密码错误' },

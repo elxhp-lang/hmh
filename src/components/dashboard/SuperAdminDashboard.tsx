@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Video, Loader2, Users, FileText, TrendingUp, UserCog, ExternalLink } from 'lucide-react';
+import { Video, FileText, TrendingUp, UserCog, ExternalLink } from 'lucide-react';
 import { FinanceOverview } from '@/components/finance/FinanceOverview';
 import { MaterialCenterDialog } from '@/components/dashboard/MaterialCenterDialog';
 

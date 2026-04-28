@@ -3,6 +3,59 @@ import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { VideoStorageService } from '@/lib/tos-storage';
 import { fail, normalizeText, requireAuth, toPositiveInt } from '@/lib/server/api-kit';
 
+interface SimpleUserRef {
+  id: string;
+}
+
+interface VideoRow {
+  id: string;
+  user_id: string;
+  session_id?: string | null;
+  task_id?: string | null;
+  prompt?: string | null;
+  script?: string | null;
+  copywriting?: string | null;
+  tags?: string[] | null;
+  tag_source?: string | null;
+  auto_tag_status?: string | null;
+  category?: string | null;
+  reference_images?: string[] | null;
+  generate_audio?: boolean | null;
+  watermark?: boolean | null;
+  web_search?: boolean | null;
+  source_video_id?: string | null;
+  source_task_id?: string | null;
+  is_remix?: boolean | null;
+  task_type?: string | null;
+  status?: string | null;
+  tos_key?: string | null;
+  public_video_url?: string | null;
+  result_url?: string | null;
+  ratio?: string | null;
+  duration?: number | null;
+  cost?: number | null;
+  error_reason?: string | null;
+  error_message?: string | null;
+  created_at: string;
+  model?: string | null;
+}
+
+interface LearningRow {
+  id: string;
+  user_id: string;
+  video_name?: string | null;
+  video_url?: string | null;
+  video_duration?: number | null;
+  summary?: string | null;
+  created_at: string;
+}
+
+function isLearningRow(value: unknown): value is LearningRow {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.id === 'string' && typeof row.user_id === 'string' && typeof row.created_at === 'string';
+}
+
 function isStablePublicUrl(url: unknown): url is string {
   if (typeof url !== 'string' || !url.startsWith('http')) return false;
   return !url.includes('X-Tos-Algorithm=') && !url.includes('X-Amz-Algorithm=');
@@ -65,7 +118,7 @@ export async function GET(request: NextRequest) {
         .select('id')
         .eq('role', 'material_member');
 
-      queryUserIds = (teamMembers as any[])?.map((m: any) => m.id as string) || [];
+      queryUserIds = (teamMembers as SimpleUserRef[] | null)?.map((m) => m.id) || [];
     } else if (decoded.role === 'super_admin') {
       // 超级管理员可以查看所有素材
       if (targetUserId) {
@@ -107,9 +160,9 @@ export async function GET(request: NextRequest) {
       'model',
     ];
     const requiredColumns = ['id', 'user_id', 'status', 'created_at'];
-    let availableOptional = new Set(optionalColumns);
-    let videosData: any[] | null = null;
-    let videosError: any = null;
+    const availableOptional = new Set(optionalColumns);
+    let videosData: VideoRow[] | null = null;
+    let videosError: { message?: string } | null = null;
     let attempts = 0;
 
     const buildVideoQuery = (availableColumns: Set<string>) => {
@@ -157,8 +210,8 @@ export async function GET(request: NextRequest) {
     while (attempts < 12) {
       attempts += 1;
       const result = await buildVideoQuery(availableOptional);
-      videosData = result.data;
-      videosError = result.error;
+      videosData = (result.data as VideoRow[] | null) || null;
+      videosError = (result.error as { message?: string } | null) || null;
       if (!videosError) break;
 
       const message = String(videosError.message || '');
@@ -227,6 +280,7 @@ export async function GET(request: NextRequest) {
       task_type: string;
       status: string;
       tos_key: string | null;
+      public_video_url?: string | null;
       result_url: string | null;
       ratio: string;
       duration: number;
@@ -244,7 +298,7 @@ export async function GET(request: NextRequest) {
     const videoUrls = new Set<string>();  // 用于去重
     if (videosData) {
       for (const video of videosData) {
-        const v = video as any;
+        const v = video;
         const urlKey = v.public_video_url || v.result_url || v.tos_key || v.id;
         if (!videoUrls.has(urlKey as string)) {
           videoUrls.add(urlKey as string);
@@ -269,17 +323,17 @@ export async function GET(request: NextRequest) {
             is_remix: Boolean(v.is_remix),
             task_type: v.task_type || 'text_to_video',
             status: v.status || 'completed',
-            tos_key: v.tos_key,
-            public_video_url: (v.public_video_url as string) || null,
-            result_url: v.result_url,
+            tos_key: v.tos_key ?? null,
+            public_video_url: v.public_video_url || null,
+            result_url: v.result_url ?? null,
             ratio: v.ratio || '16:9',
             duration: v.duration || 0,
-            cost: v.cost,
+            cost: v.cost ?? null,
             error_reason: v.error_reason,
             error_message: v.error_message,
             created_at: v.created_at,
             model: v.model || 'doubao-seedance-2-0',
-            video_url: (v.public_video_url as string) || v.result_url,
+            video_url: v.public_video_url || v.result_url || undefined,
             source: 'videos',
           });
         }
@@ -289,7 +343,8 @@ export async function GET(request: NextRequest) {
     // 添加 learning_library 表的数据
     if (learningData) {
       for (const learning of learningData) {
-        const l = learning as any;
+        if (!isLearningRow(learning)) continue;
+        const l = learning;
         const urlKey = l.video_url || l.id;
         // 仅当 videos 表中没有相同 URL 时才添加
         if (!videoUrls.has(urlKey as string)) {
@@ -297,12 +352,12 @@ export async function GET(request: NextRequest) {
           mergedVideos.push({
             id: l.id,
             user_id: l.user_id,
-            video_name: l.video_name,
+            video_name: l.video_name ?? undefined,
             prompt: (l.video_name as string) || (l.summary as string) || '学习库视频',
             task_type: 'learning_library',
             status: 'completed',  // 学习库中的视频都是已完成的
             tos_key: null,
-            result_url: l.video_url,
+            result_url: l.video_url ?? null,
             ratio: '9:16',  // 默认值
             duration: (l.video_duration as number) || 0,
             cost: null,
@@ -310,7 +365,7 @@ export async function GET(request: NextRequest) {
             error_message: null,
             created_at: l.created_at,
             model: 'doubao-seedance-2-0',  // 默认值
-            video_url: l.video_url,
+            video_url: l.video_url ?? undefined,
             source: 'learning_library',
           });
         }
@@ -340,12 +395,12 @@ export async function GET(request: NextRequest) {
       .in('id', userIds);
     
     // 创建用户 ID 到用户信息的映射
-    const userMap = new Map((usersData || []).map(u => [u.id, u]));
+    const userMap = new Map((usersData || []).map((u) => [u.id, u] as const));
 
     // 为完成的视频生成 URL
     const videosWithUrl = await Promise.all(
       paginatedVideos.map(async (video) => {
-        let videoUrl = (video as any).public_video_url || video.result_url || video.video_url;
+        let videoUrl = video.public_video_url || video.result_url || video.video_url;
 
         // 如果没有 result_url，但有 TOS key 且状态为完成，生成签名 URL
         if (!videoUrl && video.tos_key && video.status === 'completed') {

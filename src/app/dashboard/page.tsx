@@ -10,7 +10,7 @@ import { ROLE_NAMES, getDashboardConfig } from '@/lib/permissions';
 
 export default function DashboardPage() {
   const { user, token } = useAuth();
-  const { isAdmin } = usePermission();
+  usePermission();
 
   // 根据角色获取 Dashboard 配置
   const config = getDashboardConfig(user?.role || 'material_member');

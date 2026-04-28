@@ -40,8 +40,6 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
     const pageSize = parseInt(searchParams.get('pageSize') || '20');
-    const userId = searchParams.get('userId'); // 管理员可查看所有用户
-
     const client = getSupabaseClient();
     
     // 判断权限：管理员可查看所有，普通用户只能查看自己

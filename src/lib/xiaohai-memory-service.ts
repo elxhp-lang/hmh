@@ -20,7 +20,7 @@ export interface MemoryRecord {
   memory_type: MemoryType
   keywords: string[]
   source: MemorySource
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
   created_at: string
   updated_at: string
 }
@@ -38,6 +38,12 @@ export class XiaohaiMemoryService {
     return this._supabase;
   }
 
+  private isMemoryRecord(value: unknown): value is MemoryRecord {
+    if (!value || typeof value !== 'object') return false
+    const row = value as Record<string, unknown>
+    return typeof row.id === 'string' && typeof row.content === 'string'
+  }
+
   /**
    * 保存记忆
    */
@@ -46,7 +52,7 @@ export class XiaohaiMemoryService {
     content: string,
     memoryType: MemoryType,
     keywords: string[],
-    options: { source?: MemorySource; metadata?: Record<string, any> } = {}
+    options: { source?: MemorySource; metadata?: Record<string, unknown> } = {}
   ): Promise<{ success: boolean; data?: MemoryRecord; error?: string }> {
     try {
       const { data, error } = await this.supabase
@@ -64,7 +70,7 @@ export class XiaohaiMemoryService {
 
       if (error) throw error
 
-      console.log(`[记忆服务] 保存记忆成功: ${(data as any)?.id}, type=${memoryType}`)
+      console.log(`[记忆服务] 保存记忆成功: ${this.isMemoryRecord(data) ? data.id : 'unknown'}, type=${memoryType}`)
 
       if (!data) {
         throw new Error('保存记忆失败：未返回数据')
@@ -104,8 +110,10 @@ export class XiaohaiMemoryService {
       if (error) throw error
 
       // 按关键词命中数排序
-      const scored = ((data || []) as any[]).map((item: any) => {
-        const hits = (item.keywords as string[])?.filter((k: string) =>
+      const rawRecords = (data || []) as unknown[]
+      const records = rawRecords.filter((item) => this.isMemoryRecord(item))
+      const scored: Array<MemoryRecord & { relevanceScore: number }> = records.map((item) => {
+        const hits = (item.keywords || []).filter((k: string) =>
           queryKeywords.some(qk => 
             k.toLowerCase().includes(qk.toLowerCase()) ||
             qk.toLowerCase().includes(k.toLowerCase())
@@ -117,8 +125,13 @@ export class XiaohaiMemoryService {
 
       // 按关键词命中数排序，然后返回所有（没有命中也返回最近的）
       const result = scored
-        .sort((a: any, b: any) => b.relevanceScore - a.relevanceScore)
-        .slice(0, limit) as MemoryRecord[]
+        .sort((a, b) => b.relevanceScore - a.relevanceScore)
+        .slice(0, limit)
+        .map((item) => {
+          const { relevanceScore, ...record } = item
+          void relevanceScore
+          return record as MemoryRecord
+        })
 
       console.log(`[记忆服务] 获取记忆: query="${query}", found=${result.length}`)
 

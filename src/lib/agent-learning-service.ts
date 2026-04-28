@@ -112,6 +112,22 @@ export interface SemanticSearchResult {
   createdAt: string;
 }
 
+interface DbErrorLike {
+  message?: string;
+}
+
+interface MemoryRowLike {
+  id?: string;
+  embedding?: string;
+  memory_type?: string;
+  title?: string;
+  summary?: string;
+  content?: string;
+  keywords?: string[];
+  source_file_name?: string;
+  created_at?: string;
+}
+
 /**
  * 智能体学习服务类
  */
@@ -196,10 +212,10 @@ export class AgentLearningService {
 
       if (insertError) {
         console.error('存储记忆失败:', insertError);
-        return { success: false, error: (insertError as any).message || '存储失败' };
+        return { success: false, error: (insertError as DbErrorLike).message || '存储失败' };
       }
 
-      return { success: true, docId: (memory as any)?.id };
+      return { success: true, docId: (memory as MemoryRowLike)?.id };
     } catch (error) {
       console.error('导入文档失败:', error);
       return { 
@@ -274,8 +290,8 @@ export class AgentLearningService {
 
       // 添加数据库结果（计算相似度）
       if (memories && memories.length > 0) {
-        for (const memory of memories) {
-          const m = memory as any;
+        for (const memory of memories as MemoryRowLike[]) {
+          const m = memory;
           if (m.embedding) {
             try {
               const memoryEmbedding = JSON.parse(m.embedding as string);

@@ -8,8 +8,9 @@
  * POST /api/tos/cors
  */
 
-import { NextResponse } from 'next/server';
-import { getTosClient, BUCKET_NAME, ENDPOINT } from '@/lib/tos-storage';
+import { NextRequest, NextResponse } from 'next/server';
+import { getTosClient, BUCKET_NAME } from '@/lib/tos-storage';
+import { getUserFromRequest } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,9 +21,36 @@ const ALLOWED_ORIGINS = [
   'https://*.coze.site',
   'https://*.coze.cn',
 ];
+interface TosClientLike {
+  fetchBucket: (
+    bucket: string,
+    method: 'PUT',
+    query?: Record<string, string>,
+    headers?: Record<string, string>,
+    options?: { data?: string }
+  ) => Promise<unknown>;
+  getBucketCORS: (params: { bucket: string }) => Promise<{ CORSRules?: unknown[] }>;
+}
 
-export async function POST() {
+interface TosErrorLike {
+  code?: string;
+  message?: string;
+}
+
+function assertAdmin(request: NextRequest) {
+  const user = getUserFromRequest(request);
+  if (!user) return { ok: false as const, response: NextResponse.json({ error: '未登录' }, { status: 401 }) };
+  if (!['super_admin', 'admin'].includes(user.role)) {
+    return { ok: false as const, response: NextResponse.json({ error: '权限不足' }, { status: 403 }) };
+  }
+  return { ok: true as const };
+}
+
+export async function POST(request: NextRequest) {
   try {
+    const auth = assertAdmin(request);
+    if (!auth.ok) return auth.response;
+
     console.log('[TOS CORS] 开始配置跨域规则...');
 
     // 使用 SDK 的底层方法
@@ -49,7 +77,8 @@ ${corsRules}
     console.log('[TOS CORS] 发送 CORS 配置...');
 
     // 直接使用 SDK 的请求方法
-    const result = await (client as any).fetchBucket(BUCKET_NAME, 'PUT', { cors: '' }, {}, { data: corsXml });
+    const tosClient = client as unknown as TosClientLike;
+    const result = await tosClient.fetchBucket(BUCKET_NAME, 'PUT', { cors: '' }, {}, { data: corsXml });
 
     console.log('[TOS CORS] 跨域规则配置成功:', result);
 
@@ -59,32 +88,38 @@ ${corsRules}
       allowedOrigins: ALLOWED_ORIGINS,
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const err = error as TosErrorLike;
     console.error('[TOS CORS] 配置失败:', error);
     return NextResponse.json(
-      { error: error?.message || 'CORS 配置失败' },
+      { error: err?.message || 'CORS 配置失败' },
       { status: 500 }
     );
   }
 }
 
 // 获取当前 CORS 配置
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const auth = assertAdmin(request);
+    if (!auth.ok) return auth.response;
+
     const client = getTosClient();
 
-    const result = await client.getBucketCORS({
+    const tosClient = client as unknown as TosClientLike;
+    const result = await tosClient.getBucketCORS({
       bucket: BUCKET_NAME,
-    }) as any;
+    });
 
     return NextResponse.json({
       success: true,
       corsRules: result.CORSRules || [],
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const err = error as TosErrorLike;
     // 如果不存在，返回空配置
-    if (error?.code === 'NoSuchCORSConfiguration') {
+    if (err?.code === 'NoSuchCORSConfiguration') {
       return NextResponse.json({
         success: true,
         corsRules: [],
@@ -93,7 +128,7 @@ export async function GET() {
     }
     console.error('[TOS CORS] 获取配置失败:', error);
     return NextResponse.json(
-      { error: error?.message || '获取 CORS 配置失败' },
+      { error: err?.message || '获取 CORS 配置失败' },
       { status: 500 }
     );
   }

@@ -4,6 +4,18 @@ import { VideoStorageService } from '@/lib/tos-storage';
 import jwt, { TokenExpiredError, JsonWebTokenError } from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+interface VideoHistoryRow {
+  id: string;
+  status?: string;
+  tos_key?: string | null;
+  public_video_url?: string | null;
+  result_url?: string | null;
+}
+
+function isVideoHistoryRow(value: unknown): value is VideoHistoryRow {
+  if (!value || typeof value !== 'object') return false;
+  return typeof (value as Record<string, unknown>).id === 'string';
+}
 
 function isStablePublicUrl(url: unknown): url is string {
   if (typeof url !== 'string' || !url.startsWith('http')) return false;
@@ -55,7 +67,7 @@ export async function GET(request: NextRequest) {
 
     // 为每个视频生成签名 URL（24小时有效期）
     const videosWithUrl = await Promise.all(
-      (data || []).map(async (video: any) => {
+      (data || []).filter(isVideoHistoryRow).map(async (video) => {
         let videoUrl = video.public_video_url || video.result_url;
 
         // 如果有 TOS key，生成签名 URL

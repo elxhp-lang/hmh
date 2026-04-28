@@ -20,7 +20,7 @@ import {
   Cpu,
   Sparkles,
   Video,
-  Image,
+  Image as ImageIcon,
   FileText,
   Lightbulb,
   ChevronRight,
@@ -28,14 +28,13 @@ import {
   Clock,
   Star,
   Zap,
-  Info,
   Users,
   Bot,
   Award,
   Target,
   Lightbulb as IdeaIcon,
 } from 'lucide-react';
-import { TASK_MODEL_MAPPINGS, MODELS, type TaskModelMapping, type ModelInfo } from '@/lib/model-config';
+import { TASK_MODEL_MAPPINGS, type TaskModelMapping, type ModelInfo } from '@/lib/model-config';
 
 // ========== 类型定义 ==========
 
@@ -343,7 +342,7 @@ function TaskModelCardV2({ task }: { task: TaskModelMapping }) {
       case 'script_generation': return <FileText className="w-4 h-4" />;
       case 'video_analysis': return <Video className="w-4 h-4" />;
       case 'prompt_optimization': return <Sparkles className="w-4 h-4" />;
-      case 'first_frame_generation': return <Image className="w-4 h-4" />;
+      case 'first_frame_generation': return <ImageIcon className="w-4 h-4" />;
       case 'creative_suggestion': return <Lightbulb className="w-4 h-4" />;
       case 'video_generation': return <Video className="w-4 h-4" />;
       case 'video_extension': return <ChevronRight className="w-4 h-4" />;

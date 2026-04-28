@@ -11,7 +11,7 @@
  * 5. 用户反馈收集与能力强化
  */
 
-import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
+import { LLMClient, Config } from 'coze-coding-dev-sdk';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 
 // ========== 类型定义 ==========
@@ -133,6 +133,14 @@ export interface LearningPattern {
   updatedAt: Date;
 }
 
+interface DbErrorLike {
+  message?: string;
+}
+
+interface IdRow {
+  id?: string;
+}
+
 /** 执行结果 */
 export interface ExecutionResult {
   mode: ExecutionMode;
@@ -228,10 +236,10 @@ export class AgentAbilityService {
       .single();
     
     if (error) {
-      throw new Error(`创建能力档案失败: ${(error as any).message}`);
+      throw new Error(`创建能力档案失败: ${(error as DbErrorLike).message || '未知错误'}`);
     }
     
-    return this.mapToProfile(data as any);
+    return this.mapToProfile(data as Record<string, unknown>);
   }
   
   /**
@@ -860,7 +868,7 @@ ${JSON.stringify(output, null, 2)}
       return null;
     }
     
-    return this.mapToPattern(data as any);
+    return this.mapToPattern(data as Record<string, unknown>);
   }
   
   /**
@@ -870,8 +878,9 @@ ${JSON.stringify(output, null, 2)}
     userId: string,
     agentType: AgentType,
     taskType: TaskType,
-    context: string
+    _context: string
   ): Promise<LearningPattern[]> {
+    void _context;
     const client = getSupabaseClient();
     
     const { data, error } = await client
@@ -947,7 +956,11 @@ ${JSON.stringify(output, null, 2)}
     
     // 如果用户选择大模型，触发深度学习
     if (choice === 'master' && record.master_output) {
-      await this.scheduleDeepLearning(record.user_id as string, record.agent_type as AgentType, record as any);
+      await this.scheduleDeepLearning(
+        record.user_id as string,
+        record.agent_type as AgentType,
+        record as Record<string, unknown>
+      );
     }
     
     return {
@@ -965,8 +978,9 @@ ${JSON.stringify(output, null, 2)}
   private async scheduleDeepLearning(
     userId: string,
     agentType: string,
-    record: Record<string, unknown>
+    _record: Record<string, unknown>
   ): Promise<void> {
+    void _record;
     // 从大模型输出中提取更多学习模式
     console.log(`[能力服务] 安排深度学习: 用户 ${userId}, 智能体 ${agentType}`);
     
@@ -1011,7 +1025,7 @@ ${JSON.stringify(output, null, 2)}
       return '';
     }
     
-    return (record as any).id as string;
+    return ((record as IdRow).id || '') as string;
   }
   
   /**

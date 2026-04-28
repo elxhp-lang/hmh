@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
+import NextImage from 'next/image';
 import type { MessagePart } from '@/lib/agent-sse';
 
 interface RichMessageContentProps {
@@ -123,7 +124,14 @@ export function RichMessageContent({ content, parts = [] }: RichMessageContentPr
         if (part.type === 'image') {
           return (
             <a key={`part_img_${pIdx}`} href={part.url} target="_blank" rel="noopener noreferrer" className="block">
-              <img src={part.url} alt={part.alt || `图片预览 ${pIdx + 1}`} className="max-w-[320px] max-h-[260px] rounded-lg border object-cover" />
+              <NextImage
+                src={part.url}
+                alt={part.alt || `图片预览 ${pIdx + 1}`}
+                width={320}
+                height={260}
+                className="max-w-[320px] max-h-[260px] rounded-lg border object-cover"
+                unoptimized
+              />
             </a>
           );
         }
@@ -287,10 +295,13 @@ export function RichMessageContent({ content, parts = [] }: RichMessageContentPr
             if (link.type === 'image') {
               return (
                 <a key={`img_${idx}`} href={link.url} target="_blank" rel="noopener noreferrer" className="block">
-                  <img
+                  <NextImage
                     src={link.url}
                     alt={`图片预览 ${idx + 1}`}
+                    width={320}
+                    height={260}
                     className="max-w-[320px] max-h-[260px] rounded-lg border object-cover"
+                    unoptimized
                   />
                 </a>
               );

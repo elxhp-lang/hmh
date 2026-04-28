@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import NextImage from 'next/image';
 import { cn } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
 import { RichMessageContent } from '@/components/agent/RichMessageContent';
 import type { MessagePart } from '@/lib/agent-sse';
 import { 
@@ -40,7 +40,6 @@ export interface MessageBubbleProps {
 // ========== 气泡组件 ==========
 
 export function MessageBubble({
-  id,
   type,
   content,
   timestamp,
@@ -173,10 +172,13 @@ export function MessageBubble({
                       rel="noopener noreferrer"
                       className="block"
                     >
-                      <img
+                      <NextImage
                         src={attachment.url}
                         alt={attachment.name || `图片 ${index + 1}`}
+                        width={220}
+                        height={220}
                         className="max-w-[220px] max-h-[220px] rounded-lg border object-cover"
+                        unoptimized
                       />
                     </a>
                   ))}

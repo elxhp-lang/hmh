@@ -107,7 +107,10 @@ export default function MaterialHistoryPage() {
   const hasInitializedFromUrl = useRef(false);
   const urlSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const videoById = new Map((data?.videos || []).map((v) => [v.id, v] as const));
+  const videoById = useMemo(
+    () => new Map((data?.videos || []).map((v) => [v.id, v] as const)),
+    [data?.videos]
+  );
   const remixGroups = useMemo(() => {
     const groups = new Map<string, { sourceId: string; sourceTitle: string; total: number; processing: number; failed: number }>();
     for (const video of data?.videos || []) {
@@ -125,7 +128,7 @@ export default function MaterialHistoryPage() {
       groups.set(video.source_video_id, existing);
     }
     return Array.from(groups.values()).sort((a, b) => b.total - a.total);
-  }, [data?.videos]);
+  }, [data?.videos, videoById]);
   const selectedSourceVersions = useMemo(() => {
     if (!sourceVideoFilter.trim()) return [];
     const sourceId = sourceVideoFilter.trim();
@@ -172,7 +175,7 @@ export default function MaterialHistoryPage() {
     if (pageParam && !Number.isNaN(Number(pageParam))) setPage(Math.max(1, Number(pageParam)));
     hasInitializedFromUrl.current = true;
     // 只在初次挂载时同步一次
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   // 状态变更时同步到 URL（差异更新 + 防抖）
@@ -537,7 +540,7 @@ export default function MaterialHistoryPage() {
 
   // 下载视频
   const handleDownload = async (video: VideoItem) => {
-    const url = video.public_video_url || video.video_url;
+    const url = video.public_video_url || video.video_url || video.result_url;
     if (!url) return;
 
     try {
@@ -565,7 +568,7 @@ export default function MaterialHistoryPage() {
     }
     
     try {
-      const videoUrl = video.public_video_url || video.video_url;
+      const videoUrl = video.public_video_url || video.video_url || video.result_url;
       const response = await fetch('/api/learning-library', {
         method: 'POST',
         headers: {
@@ -594,7 +597,7 @@ export default function MaterialHistoryPage() {
 
   const handleRemix = async (video: VideoItem) => {
     if (!token) return;
-    const sourceVideoUrl = video.public_video_url || video.video_url;
+    const sourceVideoUrl = video.public_video_url || video.video_url || video.result_url;
     if (!sourceVideoUrl) {
       setSyncToast('该素材缺少可用视频链接，无法 REMIX');
       setTimeout(() => setSyncToast(null), 3000);
@@ -1142,12 +1145,12 @@ export default function MaterialHistoryPage() {
               <ScrollArea className="max-h-[60vh] pr-4">
                 <div className="space-y-6">
                   {/* 视频预览 */}
-                  {selectedVideo.status === 'completed' && (selectedVideo.public_video_url || selectedVideo.video_url) && (
+                  {selectedVideo.status === 'completed' && (selectedVideo.public_video_url || selectedVideo.video_url || selectedVideo.result_url) && (
                     <div>
                       <h4 className="text-sm font-medium mb-2">视频预览</h4>
                       <div className="aspect-video bg-muted rounded-lg overflow-hidden">
                         <video
-                          src={selectedVideo.public_video_url || selectedVideo.video_url || ''}
+                          src={selectedVideo.public_video_url || selectedVideo.video_url || selectedVideo.result_url || ''}
                           className="w-full h-full object-cover"
                           controls
                         />
@@ -1410,9 +1413,9 @@ function VideoGrid({
               </div>
             )}
 
-            {video.status === 'completed' && (video.public_video_url || video.video_url) ? (
+            {video.status === 'completed' && (video.public_video_url || video.video_url || video.result_url) ? (
               <video
-                src={video.public_video_url || video.video_url || ''}
+                src={video.public_video_url || video.video_url || video.result_url || ''}
                 className="w-full h-full object-cover"
                 controls
                 preload="metadata"
@@ -1530,7 +1533,7 @@ function VideoGrid({
             </div>
 
             {/* 操作按钮 */}
-            {video.status === 'completed' && (video.public_video_url || video.video_url) && (
+            {video.status === 'completed' && (video.public_video_url || video.video_url || video.result_url) && (
               <div className="flex gap-2 mt-3 flex-wrap">
                 <Button
                   size="sm"

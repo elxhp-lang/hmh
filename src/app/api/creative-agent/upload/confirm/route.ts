@@ -13,6 +13,7 @@ import { getTosClient, BUCKET_NAME } from '@/lib/tos-storage';
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+type TosAclSetter = (params: { bucket: string; key: string; acl: 'public-read' }) => Promise<unknown>;
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
 
     // 设置文件为公开读取
     const client = getTosClient();
-    await (client.putObjectAcl as any)({
+    await (client.putObjectAcl as TosAclSetter)({
       bucket: BUCKET_NAME,
       key: fileKey,
       acl: 'public-read',

@@ -3,6 +3,9 @@ import { getSupabaseClient } from '@/storage/database/supabase-client';
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+interface VideoStatusRow {
+  status?: string;
+}
 
 /**
  * 仪表盘统计概览 API
@@ -49,8 +52,9 @@ export async function GET(request: NextRequest) {
       throw new Error(`查询视频统计失败: ${videoError.message}`);
     }
 
-    const totalVideos = (videoStats as any[])?.length || 0;
-    const pendingVideos = (videoStats as any[])?.filter((v: any) => v.status === 'processing').length || 0;
+    const rows = (videoStats || []) as VideoStatusRow[];
+    const totalVideos = rows.length || 0;
+    const pendingVideos = rows.filter((v) => v.status === 'processing').length || 0;
 
     // 用户消费统计
     const { data: billingStats, error: billingError } = await client

@@ -8,6 +8,43 @@ import { TaskStateService } from '@/lib/server/task-state-service';
 // 初始化 Seedance 客户端
 const seedanceClient = new SeedanceClient();
 const taskStateService = new TaskStateService();
+interface VideoTaskRow {
+  id: string;
+}
+
+interface VideoStatusRow {
+  id: string;
+  status?: string;
+  task_id?: string;
+  duration?: number;
+  task_type?: string;
+  prompt?: string;
+  script?: string;
+  copywriting?: string;
+  category?: string;
+  is_remix?: boolean;
+  session_id?: string;
+  ratio?: string;
+  public_video_url?: string;
+  result_url?: string;
+  tos_key?: string | null;
+  cost?: number;
+  error_message?: string;
+}
+
+interface TagDefinitionRow {
+  name?: string;
+}
+
+function isVideoTaskRow(value: unknown): value is VideoTaskRow {
+  if (!value || typeof value !== 'object') return false;
+  return typeof (value as Record<string, unknown>).id === 'string';
+}
+
+function isVideoStatusRow(value: unknown): value is VideoStatusRow {
+  if (!value || typeof value !== 'object') return false;
+  return typeof (value as Record<string, unknown>).id === 'string';
+}
 
 async function findVideoWorkerTaskId(userId: string, videoId: string): Promise<string | null> {
   const supabase = getSupabaseClient();
@@ -164,7 +201,10 @@ export async function POST(request: NextRequest) {
     if (insertError) {
       throw new Error(`创建任务失败: ${insertError.message}`);
     }
-    const videoId = String((videoTask as any).id);
+    if (!isVideoTaskRow(videoTask)) {
+      throw new Error('创建任务失败: 返回数据缺少视频ID');
+    }
+    const videoId = String(videoTask.id);
 
     let workerTaskId: string | null = null;
     if (sessionId) {
@@ -348,7 +388,10 @@ export async function GET(request: NextRequest) {
       return fail('任务不存在', 404);
       }
 
-      const video = data as any;
+      if (!isVideoStatusRow(data)) {
+        return fail('任务数据异常', 500);
+      }
+      const video = data;
 
       // 如果任务还在处理中，尝试从 Seedance 获取最新状态
       if (video.status === 'processing' && video.task_id) {
@@ -454,7 +497,9 @@ export async function GET(request: NextRequest) {
                 .select('name')
                 .eq('enabled', true)
                 .order('name', { ascending: true });
-              const pool = (defs || []).map((item: any) => item.name as string).filter(Boolean);
+              const pool = ((defs || []) as TagDefinitionRow[])
+                .map((item) => (typeof item.name === 'string' ? item.name : ''))
+                .filter(Boolean);
               const autoTags = deriveAutoTags({
                 prompt: video.prompt,
                 script: video.script,

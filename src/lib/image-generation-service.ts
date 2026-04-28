@@ -111,7 +111,7 @@ export class ImageGenerationService {
       const publicUrl = publicReadable ? VideoStorageService.getPublicUrl(tosKey) : signedUrl;
 
       // 保存到数据库
-      const imageId = await this.saveToDatabase(tosKey, publicUrl, finalPrompt);
+      const imageId = await this.saveToDatabase(tosKey, publicUrl);
 
       return {
         success: true,
@@ -202,7 +202,7 @@ export class ImageGenerationService {
   /**
    * 保存到数据库
    */
-  private async saveToDatabase(key: string, url: string, prompt: string): Promise<string> {
+  private async saveToDatabase(key: string, url: string): Promise<string> {
     const imageId = `img_${Date.now()}`;
 
     // 保存到 uploaded_files 表
@@ -277,6 +277,7 @@ export const imageGenerationService = new ImageGenerationService();
  * 创建图片生成服务实例（向后兼容）
  */
 export function createImageGenerationService(_headers?: Record<string, string>): ImageGenerationService {
+  void _headers;
   return new ImageGenerationService();
 }
 

@@ -17,7 +17,7 @@
 
 import { LLMClient, Config } from 'coze-coding-dev-sdk';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
-import { ImageGenerationService, imageGenerationService } from '@/lib/image-generation-service';
+import { imageGenerationService } from '@/lib/image-generation-service';
 import { VideoLinkParser, PLATFORM_CONFIG } from '@/lib/video-link-parser';
 import { agentMemoryService } from '@/lib/agent-memory-service';
 import { createVideoLearningService, VideoAnalysisResult } from '@/lib/video-learning-service';
@@ -27,7 +27,7 @@ import {
 } from '@/lib/product-video-workflow-service';
 import { productLibraryService } from '@/lib/product-library-service';
 import { DualLayerService, type ExecutionMode, type CompareResult } from '@/lib/dual-layer-service';
-import { MemoryLayerService, MemoryLayer, MemoryStatus } from '@/lib/memory-layer-service';
+import { MemoryLayerService } from '@/lib/memory-layer-service';
 
 // ========== 类型定义 ==========
 
@@ -183,6 +183,16 @@ export interface WorkflowState {
   compare_result?: CompareModeResult;
 }
 
+interface DbErrorLike {
+  message?: string;
+}
+
+interface MemorySummaryRow {
+  title?: string;
+  summary?: string;
+  content?: string;
+}
+
 // ========== 常量 ==========
 
 /** 阶段提示词模板 */
@@ -278,10 +288,10 @@ class CreativeWorkflowService {
       .single();
 
     if (error) {
-      throw new Error(`创建工作流失败: ${(error as any).message || '创建失败'}`);
+      throw new Error(`创建工作流失败: ${(error as DbErrorLike).message || '创建失败'}`);
     }
 
-    return this.mapToState(data as any);
+    return this.mapToState(data as Record<string, unknown>);
   }
 
   /**
@@ -301,7 +311,7 @@ class CreativeWorkflowService {
       return null;
     }
 
-    return this.mapToState(data as any);
+    return this.mapToState(data as Record<string, unknown>);
   }
 
   /**
@@ -323,7 +333,7 @@ class CreativeWorkflowService {
       return null;
     }
 
-    return this.mapToState(data as any);
+    return this.mapToState(data as Record<string, unknown>);
   }
 
   /**
@@ -1173,8 +1183,8 @@ ${productContext ? productContext + '\n' : ''}
         .limit(10);
       
       if (memories && memories.length > 0) {
-        for (const memory of memories as any[]) {
-          longTermMemory.push(`${(memory as any).title}: ${(memory as any).summary || ((memory as any).content?.slice(0, 100) as string) || ''}`);
+        for (const memory of memories as MemorySummaryRow[]) {
+          longTermMemory.push(`${memory.title || ''}: ${memory.summary || memory.content?.slice(0, 100) || ''}`);
         }
         console.log(`[工作前阅读] 长期记忆: ${longTermMemory.length} 条`);
       }
@@ -1751,7 +1761,7 @@ ${JSON.stringify(workflow.script, null, 2)}`;
    */
   private async generateBatchDirections(workflow: WorkflowState): Promise<BatchDirection[]> {
     // 直接返回预设的简洁方向，不再调用LLM
-    const basePrompt = workflow.current_video?.prompt_used || '';
+    void (workflow.current_video?.prompt_used || '');
     
     return [
       {

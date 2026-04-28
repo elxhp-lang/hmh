@@ -9,14 +9,11 @@
  * 3. 减少硬编码的工作流步骤
  */
 
-import { SEEDANCE_2_0_GUIDE } from './seedance-2.0-guide';
 
 /**
  * 获取 Seedance 2.0 最佳实践提示词
  */
 export function getSeedanceBestPractices(): string {
-  const guide = SEEDANCE_2_0_GUIDE;
-  
   return `
 ## 📚 Seedance 2.0 最佳实践指南
 

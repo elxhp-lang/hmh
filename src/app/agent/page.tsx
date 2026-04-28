@@ -25,6 +25,13 @@ interface Message {
 }
 
 const HOUR_24 = 24 * 60 * 60 * 1000;
+interface FinanceMessageRow {
+  id?: string;
+  role?: 'user' | 'assistant';
+  content?: string;
+  created_at?: string;
+  timestamp?: string;
+}
 
 export default function AgentPage() {
   const { user, token } = useAuth();
@@ -44,10 +51,8 @@ export default function AgentPage() {
   const [historyLoaded, setHistoryLoaded] = useState(false); // 标记是否已加载过历史
 
   // 联网搜索相关
-  const [isSearching, setIsSearching] = useState(false);
+  const [isSearching] = useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
-  const [searchResults, setSearchResults] = useState<Array<{title: string; url: string; snippet: string; siteName?: string}>>([]);
-  const [searchSummary, setSearchSummary] = useState<string | null>(null);
 
   // 加载财务助手历史记录
   const loadFinanceHistory = useCallback(async () => {
@@ -62,17 +67,18 @@ export default function AgentPage() {
 
       if (data.messages && Array.isArray(data.messages)) {
         const now = Date.now();
-        const recentMsgs = data.messages
-          .filter((m: any) => {
+        const recentMsgs = (data.messages as FinanceMessageRow[])
+          .filter((m) => {
             // API 返回的是 timestamp，前端需要 created_at
-            const msgTime = new Date(m.created_at || m.timestamp).getTime();
+            const msgTime = new Date(m.created_at || m.timestamp || Date.now()).getTime();
             return now - msgTime < HOUR_24;
           })
-          .map((m: any) => ({
+          .filter((m) => m.role === 'user' || m.role === 'assistant')
+          .map((m) => ({
             id: m.id || `msg_${m.created_at || m.timestamp}`,
-            role: m.role,
-            content: m.content,
-            created_at: m.created_at || m.timestamp,
+            role: m.role as 'user' | 'assistant',
+            content: m.content || '',
+            created_at: m.created_at || m.timestamp || new Date().toISOString(),
           }));
 
         // 保存历史记录

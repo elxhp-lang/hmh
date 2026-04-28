@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useAuth, usePermission } from '@/contexts/AuthContext';
+import { useState, useEffect, useCallback } from 'react';
+import { usePermission } from '@/contexts/AuthContext';
 import { useApi } from '@/lib/api';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,12 +31,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
-  FileText,
   Download,
-  Search,
   Plus,
-  DollarSign,
-  Calendar,
   AlertCircle,
   Calculator,
   Video,
@@ -65,15 +61,13 @@ interface InvoiceRecord {
 }
 
 export default function BillingPage() {
-  const { user } = useAuth();
   const { isFinance } = usePermission();
   const { request, token } = useApi();
 
   // 账单列表
   const [bills, setBills] = useState<BillingRecord[]>([]);
   const [billsLoading, setBillsLoading] = useState(true);
-  const [billsPage, setBillsPage] = useState(1);
-  const [billsTotal, setBillsTotal] = useState(0);
+  const [billsPage] = useState(1);
   const [searchUser, setSearchUser] = useState('');
 
   // 发票列表
@@ -121,12 +115,7 @@ export default function BillingPage() {
 
   const costResult = calculateCost();
 
-  useEffect(() => {
-    loadBills();
-    loadInvoices();
-  }, [billsPage, searchUser]);
-
-  const loadBills = async () => {
+  const loadBills = useCallback(async () => {
     try {
       setBillsLoading(true);
       const params = new URLSearchParams({
@@ -139,15 +128,14 @@ export default function BillingPage() {
 
       const data = await request<{ bills: BillingRecord[]; total: number }>(`/api/billing?${params}`);
       setBills(data.bills || []);
-      setBillsTotal(data.total || 0);
     } catch (e) {
       console.error('加载账单失败:', e);
     } finally {
       setBillsLoading(false);
     }
-  };
+  }, [billsPage, isFinance, request, searchUser]);
 
-  const loadInvoices = async () => {
+  const loadInvoices = useCallback(async () => {
     try {
       setInvoicesLoading(true);
       const data = await request<{ invoices: InvoiceRecord[] }>('/api/invoice');
@@ -157,7 +145,12 @@ export default function BillingPage() {
     } finally {
       setInvoicesLoading(false);
     }
-  };
+  }, [request]);
+
+  useEffect(() => {
+    loadBills();
+    loadInvoices();
+  }, [loadBills, loadInvoices]);
 
   const handleApplyInvoice = async () => {
     setInvoiceError(null);

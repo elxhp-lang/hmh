@@ -43,7 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const userData = JSON.parse(savedUser);
           setToken(savedToken);
           setUser(userData);
-        } catch (e) {
+        } catch {
           localStorage.removeItem(TOKEN_KEY);
           localStorage.removeItem(USER_KEY);
         }

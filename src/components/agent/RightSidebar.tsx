@@ -1,19 +1,18 @@
 'use client';
 
 import { useState } from 'react';
+import NextImage from 'next/image';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Separator } from '@/components/ui/separator';
 import { 
   Sparkles,
   Clock,
   History,
   FolderOpen,
-  Settings2,
   Video,
   Image as ImageIcon,
   Trash2,
@@ -236,9 +235,15 @@ function TemplateSelector({ templates, onSelect }: TemplateSelectorProps) {
           onClick={() => onSelect(template)}
           className="flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors text-left"
         >
-          <div className="w-12 h-12 rounded bg-muted flex items-center justify-center flex-shrink-0">
+          <div className="w-12 h-12 rounded bg-muted flex items-center justify-center flex-shrink-0 relative">
             {template.thumbnail ? (
-              <img src={template.thumbnail} alt="" className="w-full h-full object-cover rounded" />
+              <NextImage
+                src={template.thumbnail}
+                alt=""
+                fill
+                className="w-full h-full object-cover rounded"
+                unoptimized
+              />
             ) : (
               <Sparkles className="w-5 h-5 text-muted-foreground" />
             )}
@@ -295,7 +300,13 @@ function HistoryList({ items, onSelect }: HistoryListProps) {
         >
           <div className="w-10 h-10 rounded bg-muted flex items-center justify-center flex-shrink-0 relative">
             {item.thumbnail ? (
-              <img src={item.thumbnail} alt="" className="w-full h-full object-cover rounded" />
+              <NextImage
+                src={item.thumbnail}
+                alt=""
+                fill
+                className="w-full h-full object-cover rounded"
+                unoptimized
+              />
             ) : (
               <Video className="w-4 h-4 text-muted-foreground" />
             )}
@@ -363,12 +374,14 @@ function MaterialManager({ materials, onDelete, onEdit }: MaterialManagerProps) 
               key={material.id}
               className="group relative rounded-lg border overflow-hidden"
             >
-              <div className="aspect-square bg-muted">
+              <div className="aspect-square bg-muted relative">
                 {material.thumbnail ? (
-                  <img 
+                  <NextImage
                     src={material.thumbnail} 
                     alt="" 
+                    fill
                     className="w-full h-full object-cover" 
+                    unoptimized
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">

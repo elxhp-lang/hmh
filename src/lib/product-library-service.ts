@@ -80,7 +80,6 @@ class ProductStoragePath {
   /** 商品图片路径 */
   getProductImagePath(productId: string, fileName: string): string {
     const timestamp = Date.now();
-    const ext = fileName.split('.').pop() || 'jpg';
     return `${this.getProductDir(productId)}/images/${timestamp}_${fileName}`;
   }
 

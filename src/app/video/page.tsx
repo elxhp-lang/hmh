@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import NextImage from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
 import { useApi } from '@/lib/api';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
@@ -19,7 +20,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Video,
-  Image,
+  Image as ImageIcon,
   Upload,
   Sparkles,
   Play,
@@ -52,6 +53,11 @@ interface VideoTask {
   duration: number;
   ratio: string;
   model: string;
+}
+
+interface ErrorLike {
+  message?: string;
+  status?: number;
 }
 
 interface ReferenceFile {
@@ -152,7 +158,6 @@ export default function VideoPage() {
 
   // 任务状态（并发模式）
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([]);  // 进行中的任务列表
-  const [submitting, setSubmitting] = useState(false);              // 提交中状态（用于按钮防抖）
   const [cooldown, setCooldown] = useState(false);                  // 冷却状态（2秒防抖）
   const [historyCollapsed, setHistoryCollapsed] = useState(true);    // 历史记录折叠状态
   const [error, setError] = useState<string | null>(null);
@@ -176,53 +181,24 @@ export default function VideoPage() {
   const editVideoInputRef = useRef<HTMLInputElement>(null);
   const extendVideoInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  useEffect(() => {
-    loadHistory();
-  }, []);
-
-  useEffect(() => {
-    if (!token) return;
-    loadRealAssets();
-  }, [token]);
-
-  // 组件卸载时清理所有定时器
-  useEffect(() => {
-    return () => {
-      pollTimersRef.current.forEach((interval) => {
-        clearInterval(interval);
-      });
-      pollTimersRef.current.clear();
-    };
-  }, []);
-
-  // 获取模型友好名称
-  const getModelName = (model?: string) => {
-    if (!model) return '未知模型';
-    const modelMap: Record<string, string> = {
-      'doubao-seedance-2-0-260128': 'Seedance 2.0 标准版',
-      'doubao-seedance-2-0-fast-260128': 'Seedance 2.0 快速版',
-    };
-    return modelMap[model] || model;
-  };
-
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
     try {
       setHistoryLoading(true);
       const data = await request<{ videos: VideoTask[] }>('/api/video/history');
       setHistory(data.videos || []);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('加载历史失败:', e);
       // token 过期时不需要显示错误，让 useApi 的 logout 处理即可
-      if (e?.status === 401) {
+      if ((e as ErrorLike)?.status === 401) {
         // useApi 会在 401 时自动 logout，页面会自动跳转
         return;
       }
     } finally {
       setHistoryLoading(false);
     }
-  };
+  }, [request]);
 
-  const loadRealAssets = async () => {
+  const loadRealAssets = useCallback(async () => {
     try {
       setLoadingRealAssets(true);
       const response = await fetch('/api/real-assets?status=active', {
@@ -238,6 +214,36 @@ export default function VideoPage() {
     } finally {
       setLoadingRealAssets(false);
     }
+  }, [token]);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
+
+  useEffect(() => {
+    if (!token) return;
+    loadRealAssets();
+  }, [token, loadRealAssets]);
+
+  // 组件卸载时清理所有定时器
+  useEffect(() => {
+    const timers = pollTimersRef.current;
+    return () => {
+      timers.forEach((interval) => {
+        clearInterval(interval);
+      });
+      timers.clear();
+    };
+  }, []);
+
+  // 获取模型友好名称
+  const getModelName = (model?: string) => {
+    if (!model) return '未知模型';
+    const modelMap: Record<string, string> = {
+      'doubao-seedance-2-0-260128': 'Seedance 2.0 标准版',
+      'doubao-seedance-2-0-fast-260128': 'Seedance 2.0 快速版',
+    };
+    return modelMap[model] || model;
   };
 
   // ========== 并发任务管理函数 ==========
@@ -305,9 +311,9 @@ export default function VideoPage() {
 
       // 从列表中移除
       setHistory(prev => prev.filter(item => item.id !== id));
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('删除失败:', e);
-      alert(e?.message || '删除失败');
+      alert((e as ErrorLike)?.message || '删除失败');
     } finally {
       setDeletingIds(prev => {
         const next = new Set(prev);
@@ -846,7 +852,7 @@ export default function VideoPage() {
                   <span className="hidden sm:inline">文生视频</span>
                 </TabsTrigger>
                 <TabsTrigger value="image" className="text-xs sm:text-sm">
-                  <Image className="h-4 w-4 sm:mr-2" />
+                  <ImageIcon className="h-4 w-4 sm:mr-2" />
                   <span className="hidden sm:inline">图生视频</span>
                 </TabsTrigger>
                 <TabsTrigger value="multimodal" className="text-xs sm:text-sm">
@@ -917,7 +923,14 @@ export default function VideoPage() {
                           onClick={() => firstFrameInputRef.current?.click()}
                         >
                           {firstFramePreview ? (
-                            <img src={firstFramePreview} alt="首帧" className="max-h-40 mx-auto rounded" />
+                            <NextImage
+                              src={firstFramePreview}
+                              alt="首帧"
+                              width={320}
+                              height={160}
+                              className="max-h-40 w-auto mx-auto rounded"
+                              unoptimized
+                            />
                           ) : (
                             <div className="py-8">
                               <Upload className="h-8 w-8 mx-auto text-muted-foreground" />
@@ -948,7 +961,14 @@ export default function VideoPage() {
                           onClick={() => lastFrameInputRef.current?.click()}
                         >
                           {lastFramePreview ? (
-                            <img src={lastFramePreview} alt="尾帧" className="max-h-40 mx-auto rounded" />
+                            <NextImage
+                              src={lastFramePreview}
+                              alt="尾帧"
+                              width={320}
+                              height={160}
+                              className="max-h-40 w-auto mx-auto rounded"
+                              unoptimized
+                            />
                           ) : (
                             <div className="py-8">
                               <Upload className="h-8 w-8 mx-auto text-muted-foreground" />
@@ -1018,7 +1038,18 @@ export default function VideoPage() {
                       <div className="grid grid-cols-3 gap-2">
                         {referenceImages.map((img, idx) => (
                           <div key={idx} className="relative group">
-                            <img src={img.preview} alt={`参考图${idx + 1}`} className="w-full h-24 object-cover rounded" />
+                            {img.preview ? (
+                              <NextImage
+                                src={img.preview}
+                                alt={`参考图${idx + 1}`}
+                                width={320}
+                                height={96}
+                                className="w-full h-24 object-cover rounded"
+                                unoptimized
+                              />
+                            ) : (
+                              <div className="w-full h-24 rounded bg-muted" />
+                            )}
                             <Button
                               variant="destructive"
                               size="icon"
@@ -1257,7 +1288,18 @@ export default function VideoPage() {
                       <div className="grid grid-cols-3 gap-2">
                         {editReferenceImages.map((img, idx) => (
                           <div key={idx} className="relative group">
-                            <img src={img.preview} alt={`参考图${idx + 1}`} className="w-full h-24 object-cover rounded" />
+                            {img.preview ? (
+                              <NextImage
+                                src={img.preview}
+                                alt={`参考图${idx + 1}`}
+                                width={320}
+                                height={96}
+                                className="w-full h-24 object-cover rounded"
+                                unoptimized
+                              />
+                            ) : (
+                              <div className="w-full h-24 rounded bg-muted" />
+                            )}
                             <Button
                               variant="destructive"
                               size="icon"
@@ -1484,7 +1526,14 @@ export default function VideoPage() {
                       if (!current?.asset_url) return null;
                       return (
                         <div className="rounded border overflow-hidden bg-muted mt-2">
-                          <img src={current.asset_url} alt={current.name} className="w-full h-24 object-cover" />
+                          <NextImage
+                            src={current.asset_url}
+                            alt={current.name}
+                            width={320}
+                            height={96}
+                            className="w-full h-24 object-cover"
+                            unoptimized
+                          />
                         </div>
                       );
                     })()

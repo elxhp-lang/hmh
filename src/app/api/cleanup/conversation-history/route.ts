@@ -6,10 +6,9 @@
  * 用于定时任务调用，每小时执行一次
  */
 
-import { NextRequest } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 
-export async function POST(request: NextRequest) {
+export async function POST() {
   try {
     console.log('🧹 [清理任务] 开始执行...');
 
@@ -60,7 +59,7 @@ export async function POST(request: NextRequest) {
  * 
  * 查询当前有多少 24 小时前的记录待清理
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const supabase = getSupabaseClient();
     

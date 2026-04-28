@@ -58,7 +58,7 @@ export function FinanceOverview() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cached, setCached] = useState(false);
-  const [cachedAt, setCachedAt] = useState<string | null>(null);
+  const [, setCachedAt] = useState<string | null>(null);
   const [nextRefresh, setNextRefresh] = useState<string | null>(null);
 
   useEffect(() => {

@@ -15,15 +15,6 @@ interface EmptyStateProps {
   className?: string;
 }
 
-const iconMap: Record<string, LucideIcon> = {
-  default: Inbox,
-  video: FileVideo,
-  message: MessageSquare,
-  product: Package,
-  search: Search,
-  error: AlertCircle,
-};
-
 export function EmptyState({
   icon,
   title,

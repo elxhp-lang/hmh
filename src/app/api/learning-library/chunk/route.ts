@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
-import { LearningLibraryStorage } from '@/lib/tos-storage';
+import { LearningLibraryStorage, VideoStorageService } from '@/lib/tos-storage';
 import { videoLearningService } from '@/lib/video-learning-service';
 import { HeaderUtils } from 'coze-coding-dev-sdk';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+interface LearningRow {
+  id: string;
+}
+function isLearningRow(value: unknown): value is LearningRow {
+  if (!value || typeof value !== 'object') return false;
+  return typeof (value as Record<string, unknown>).id === 'string';
+}
 
 // 临时存储分块数据（生产环境应使用Redis或数据库）
 const chunkStore = new Map<string, { chunks: Buffer[]; totalChunks: number; fileName: string; fileType: string; receivedChunks: number }>();
@@ -95,8 +102,13 @@ export async function POST(request: NextRequest) {
         fileType
       );
 
-      // 生成访问 URL
-      const fileUrl = await LearningLibraryStorage.getLearningVideoUrl(fileKey, 24 * 60 * 60);
+      // 优先使用永久公开 URL，失败时降级签名 URL
+      const fileUrl = await VideoStorageService.setPublicRead(fileKey)
+        .then(async (success) => {
+          if (success) return VideoStorageService.getVideoPublicUrl(fileKey);
+          return await LearningLibraryStorage.getLearningVideoUrl(fileKey, 24 * 60 * 60);
+        })
+        .catch(async () => await LearningLibraryStorage.getLearningVideoUrl(fileKey, 24 * 60 * 60));
 
       // 创建学习记录
       const client = getSupabaseClient();
@@ -124,22 +136,25 @@ export async function POST(request: NextRequest) {
       if (!learning) {
         return NextResponse.json({ error: '创建学习记录失败' }, { status: 500 });
       }
+      if (!isLearningRow(learning)) {
+        return NextResponse.json({ error: '学习记录数据异常' }, { status: 500 });
+      }
 
-      const learningAny = learning as any;
+      const learningRow = learning;
 
       // 异步启动分析
       const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
       setTimeout(() => {
-        startVideoAnalysis(learningAny.id as string, fileUrl, fileName, customHeaders);
+        startVideoAnalysis(learningRow.id, fileUrl, fileName, customHeaders);
       }, 1000);
 
-      console.log(`[分块上传] 上传完成，学习记录ID: ${learningAny.id}`);
+      console.log(`[分块上传] 上传完成，学习记录ID: ${learningRow.id}`);
 
       return NextResponse.json({
         success: true,
         completed: true,
         learning: {
-          id: learningAny.id,
+          id: learningRow.id,
           name: fileName,
           size: fileSize,
           status: 'pending',

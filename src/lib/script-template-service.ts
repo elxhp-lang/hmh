@@ -36,6 +36,11 @@ export interface VariableRow {
   [key: string]: string;      // 变量名 -> 值
 }
 
+type TemplateRow = Partial<ScriptTemplate> & {
+  id?: string;
+  template_id?: string;
+};
+
 export interface TemplateParseResult {
   success: boolean;
   prompt: string;             // 替换后的 prompt
@@ -85,7 +90,8 @@ export class ScriptTemplateService {
         return { success: false, error: error.message };
       }
 
-      return { success: true, data: this.mapToTemplate(data) };
+      if (!data) return { success: false, error: '模板创建后未返回数据' };
+      return { success: true, data: this.mapToTemplate(data as TemplateRow) };
     } catch (error) {
       return {
         success: false,
@@ -116,7 +122,7 @@ export class ScriptTemplateService {
 
       return {
         success: true,
-        data: (data || []).map((item: any) => this.mapToTemplate(item as any))
+        data: (data || []).map((item) => this.mapToTemplate(item as TemplateRow))
       };
     } catch (error) {
       return {
@@ -146,7 +152,8 @@ export class ScriptTemplateService {
         return { success: false, error: error.message };
       }
 
-      return { success: true, data: this.mapToTemplate(data) };
+      if (!data) return { success: false, error: '模板不存在' };
+      return { success: true, data: this.mapToTemplate(data as TemplateRow) };
     } catch (error) {
       return {
         success: false,
@@ -287,7 +294,7 @@ ${promptContent}`;
     const shots: TemplateShot[] = [];
     const lines = scriptContent.split('\n').filter(line => line.trim());
     
-    lines.forEach((line, index) => {
+    lines.forEach((line) => {
       const match = line.match(/\[(\d+-\d+s?)\]\s*(.+)/);
       if (match) {
         shots.push({
@@ -317,21 +324,21 @@ ${promptContent}`;
   /**
    * 映射数据库数据到模板对象
    */
-  private mapToTemplate(data: any): ScriptTemplate {
+  private mapToTemplate(data: TemplateRow): ScriptTemplate {
     return {
-      template_id: data.template_id || data.id,
-      template_name: data.template_name,
-      category: data.category,
-      duration: data.duration,
+      template_id: data.template_id || data.id || '',
+      template_name: data.template_name || '',
+      category: data.category || '',
+      duration: data.duration || 8,
       aspect_ratio: data.aspect_ratio || '9:16',
-      style: data.style,
-      shots: data.shots || [],
+      style: data.style || '默认',
+      shots: (data.shots || []) as TemplateShot[],
       variable_desc: data.variable_desc,
-      created_by: data.created_by,
+      created_by: data.created_by || '',
       usage_count: data.usage_count || 0,
       last_used_at: data.last_used_at,
-      created_at: data.created_at,
-      updated_at: data.updated_at
+      created_at: data.created_at || new Date().toISOString(),
+      updated_at: data.updated_at || new Date().toISOString()
     };
   }
 }

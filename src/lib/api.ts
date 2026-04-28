@@ -126,7 +126,7 @@ export async function streamRequest(
             } else if (data.error) {
               throw new Error(data.error);
             }
-          } catch (e) {
+          } catch {
             // 忽略解析错误
           }
         }
@@ -209,7 +209,7 @@ export async function streamAgentRequest(
           try {
             const event = parseSSEPayload(dataStr);
             if (event) onEvent(event);
-          } catch (e) {
+          } catch {
             // 忽略解析错误，继续处理下一行
           }
         }

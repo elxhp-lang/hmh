@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,9 +15,7 @@ import {
   Shield,
   Calendar,
   Loader2,
-  CheckCircle,
   AlertCircle,
-  Camera,
   Save,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -42,19 +40,14 @@ const ROLE_NAMES: Record<string, string> = {
 };
 
 export default function SettingsPage() {
-  const { token, user, updateUser } = useAuth();
+  const { token, updateUser } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [hasChanges, setHasChanges] = useState(false);
 
-  // 加载用户信息
-  useEffect(() => {
-    loadProfile();
-  }, [token]);
-
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     if (!token) return;
     
     setLoading(true);
@@ -74,7 +67,12 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
+
+  // 加载用户信息
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
 
   // 监听变化
   useEffect(() => {

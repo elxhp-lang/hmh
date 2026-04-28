@@ -26,9 +26,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { VideoStorageService } from '@/lib/tos-storage';
+import { videoLearningService } from '@/lib/video-learning-service';
+import { HeaderUtils } from 'coze-coding-dev-sdk';
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+interface LearningRow {
+  id: string;
+}
+function isLearningRow(value: unknown): value is LearningRow {
+  if (!value || typeof value !== 'object') return false;
+  return typeof (value as Record<string, unknown>).id === 'string';
+}
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,23 +52,39 @@ export async function POST(request: NextRequest) {
 
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; username: string };
+    const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
 
     const body = await request.json();
-    const { key, fileName, fileSize, publicUrl } = body;
+    const { key, fileKey, fileName, fileSize, publicUrl } = body;
+    const targetKey = (typeof key === 'string' && key) || (typeof fileKey === 'string' && fileKey) || '';
 
-    if (!key || !fileName) {
+    if (!targetKey || !fileName) {
       return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
     }
 
-    // 验证文件归属（支持 videos 和 learning-videos 路径）
-    const expectedPrefix = `users/${decoded.userId}/`;
-    if (!key.startsWith(expectedPrefix)) {
+    // 验证文件归属（兼容 legacy 路径）
+    const expectedPrefixes = [
+      `users/${decoded.userId}/learning-videos/`,
+      `learning-library/${decoded.userId}/`,
+    ];
+    if (!expectedPrefixes.some((prefix) => targetKey.startsWith(prefix))) {
       return NextResponse.json({ error: '无权访问此文件' }, { status: 403 });
     }
 
-    // 设置为永久公开读取
-    console.log(`[学习库确认] 设置永久公开读取: ${key}`);
-    await VideoStorageService.setPublicRead(key);
+    // 优先公开 URL，失败降级为入参 publicUrl
+    console.log(`[学习库确认] 设置永久公开读取: ${targetKey}`);
+    let finalPublicUrl = typeof publicUrl === 'string' ? publicUrl : '';
+    try {
+      const aclOk = await VideoStorageService.setPublicRead(targetKey);
+      if (aclOk) {
+        finalPublicUrl = VideoStorageService.getVideoPublicUrl(targetKey);
+      }
+    } catch {
+      // keep fallback url
+    }
+    if (!finalPublicUrl) {
+      return NextResponse.json({ error: '无法生成可访问的视频地址' }, { status: 400 });
+    }
 
     // 创建学习库记录
     const client = getSupabaseClient();
@@ -68,8 +93,8 @@ export async function POST(request: NextRequest) {
       .insert({
         user_id: decoded.userId,
         video_name: fileName,
-        video_key: key,
-        video_url: publicUrl,
+        video_key: targetKey,
+        video_url: finalPublicUrl,
         video_size: fileSize || 0,
         analysis_status: 'pending',
       })
@@ -84,22 +109,26 @@ export async function POST(request: NextRequest) {
     if (!learning) {
       return NextResponse.json({ error: '创建学习记录失败' }, { status: 500 });
     }
+    if (!isLearningRow(learning)) {
+      return NextResponse.json({ error: '学习记录数据异常' }, { status: 500 });
+    }
 
-    const learningAny = learning as any;
+    const learningRow = learning;
 
-    console.log(`[学习库确认] 记录创建成功: ${learningAny.id}`);
+    console.log(`[学习库确认] 记录创建成功: ${learningRow.id}`);
 
-    // 注意：这里不激活 Seed 2.0 进行分析
-    // 只通知有新的偏好数据，由 Seed 2.0 决定是否学习
-    // 通知方式：在创意小海的对话中可以看到学习库有更新
+    // 对齐 /confirm 逻辑：异步启动分析
+    setTimeout(() => {
+      startVideoAnalysis(learningRow.id, finalPublicUrl, fileName, customHeaders);
+    }, 1000);
 
     return NextResponse.json({
       success: true,
       learning: {
-        id: learningAny.id,
+        id: learningRow.id,
         name: fileName,
-        publicUrl: publicUrl,
-        message: '视频已保存到学习库，Seed 2.0 可以随时学习',
+        publicUrl: finalPublicUrl,
+        message: '视频已保存到学习库，正在分析中...',
       },
     });
 
@@ -114,5 +143,38 @@ export async function POST(request: NextRequest) {
       { error: error instanceof Error ? error.message : '确认上传失败' },
       { status: 500 }
     );
+  }
+}
+
+async function startVideoAnalysis(
+  learningId: string,
+  videoUrl: string,
+  videoName: string,
+  headers: Record<string, string>
+) {
+  const client = getSupabaseClient();
+  try {
+    await client
+      .from('learning_library')
+      .update({ analysis_progress: 10 })
+      .eq('id', learningId);
+
+    const result = await videoLearningService.analyzeVideo(videoUrl, videoName, headers);
+
+    await client
+      .from('learning_library')
+      .update({ analysis_progress: 80 })
+      .eq('id', learningId);
+
+    await videoLearningService.saveAnalysisResult(learningId, result);
+  } catch (error) {
+    console.error('[学习库确认] 视频分析失败:', error);
+    await client
+      .from('learning_library')
+      .update({
+        analysis_status: 'failed',
+        analysis_error: error instanceof Error ? error.message : '分析失败',
+      })
+      .eq('id', learningId);
   }
 }

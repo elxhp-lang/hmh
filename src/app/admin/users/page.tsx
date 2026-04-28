@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useAuth, usePermission } from '@/contexts/AuthContext';
+import { useState, useEffect, useCallback } from 'react';
+import { usePermission } from '@/contexts/AuthContext';
 import { useApi } from '@/lib/api';
 import { toast } from 'sonner';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -29,7 +29,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Label } from '@/components/ui/label';
-import { Users, Search, Edit, AlertCircle, CheckCircle, Check, X, Trash2 } from 'lucide-react';
+import { Edit, AlertCircle, Check, X, Trash2 } from 'lucide-react';
 
 interface UserRecord {
   user_id: string;
@@ -39,6 +39,10 @@ interface UserRecord {
   status: string;
   company: string;
   created_at: string;
+}
+
+interface RequestErrorLike {
+  message?: string;
 }
 
 export default function UsersPage() {
@@ -65,13 +69,7 @@ export default function UsersPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingUser, setDeletingUser] = useState<UserRecord | null>(null);
 
-  useEffect(() => {
-    if (hasPermission) {
-      loadUsers();
-    }
-  }, [hasPermission, search]);
-
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
@@ -86,7 +84,13 @@ export default function UsersPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [request, search]);
+
+  useEffect(() => {
+    if (hasPermission) {
+      loadUsers();
+    }
+  }, [hasPermission, loadUsers]);
 
   const handleEdit = (user: UserRecord) => {
     setEditingUser(user);
@@ -105,8 +109,8 @@ export default function UsersPage() {
       });
       toast.success(action === 'approve' ? '已通过审核' : '已拒绝该申请');
       loadUsers();
-    } catch (e: any) {
-      toast.error(e?.message || '操作失败，请重试');
+    } catch (e: unknown) {
+      toast.error((e as RequestErrorLike)?.message || '操作失败，请重试');
     } finally {
       setLoading(false);
     }
@@ -124,8 +128,8 @@ export default function UsersPage() {
       toast.success(`审核通过，已分配角色：${roleText}`);
       setApproveDialogOpen(false);
       loadUsers();
-    } catch (e: any) {
-      toast.error(e?.message || '操作失败，请重试');
+    } catch (e: unknown) {
+      toast.error((e as RequestErrorLike)?.message || '操作失败，请重试');
     } finally {
       setLoading(false);
     }
@@ -143,8 +147,8 @@ export default function UsersPage() {
       setDeleteDialogOpen(false);
       setDeletingUser(null);
       loadUsers();
-    } catch (e: any) {
-      toast.error(e?.message || '删除失败，请重试');
+    } catch (e: unknown) {
+      toast.error((e as RequestErrorLike)?.message || '删除失败，请重试');
     } finally {
       setLoading(false);
     }

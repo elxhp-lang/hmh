@@ -1,16 +1,16 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import NextImage from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
@@ -37,12 +37,9 @@ import {
   Package,
   Image as ImageIcon,
   Eye,
-  X,
   Loader2,
   Search,
-  Grid3X3,
   Check,
-  AlertCircle,
   Users,
   Copy,
 } from 'lucide-react';
@@ -97,7 +94,7 @@ const VIEW_OPTIONS = [
 ];
 
 export default function ProductLibraryPage() {
-  const { token, user } = useAuth();
+  const { token } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -475,10 +472,12 @@ export default function ProductLibraryPage() {
                                 key={img.key}
                                 className="aspect-square relative rounded overflow-hidden bg-muted"
                               >
-                                <img
+                                <NextImage
                                   src={img.url}
                                   alt={img.view_name}
+                                  fill
                                   className="w-full h-full object-cover"
+                                  unoptimized
                                 />
                                 <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-0.5 text-center">
                                   {img.view_name}
@@ -565,10 +564,12 @@ export default function ProductLibraryPage() {
                     <CardContent className="p-4">
                       <div className="aspect-video rounded-md bg-muted overflow-hidden mb-3">
                         {asset.asset_url ? (
-                          <img
+                          <NextImage
                             src={asset.asset_url}
                             alt={asset.name}
+                            fill
                             className="w-full h-full object-cover"
+                            unoptimized
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">
@@ -754,10 +755,12 @@ export default function ProductLibraryPage() {
                     {viewingProduct.images.map((img) => (
                       <div key={img.key} className="relative group">
                         <div className="aspect-square rounded overflow-hidden bg-muted">
-                          <img
+                          <NextImage
                             src={img.url}
                             alt={img.view_name}
+                            fill
                             className="w-full h-full object-cover"
+                            unoptimized
                           />
                         </div>
                         <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">

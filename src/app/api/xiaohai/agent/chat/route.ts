@@ -25,6 +25,10 @@ import { TaskStateService } from '@/lib/server/task-state-service';
 const client = new LLMClient(new Config());
 const toolsService = new AgentToolsService();
 const taskStateService = new TaskStateService();
+type SessionRow = { id: string; status?: string; reused?: boolean };
+type UserPreferenceRow = { preference_type?: string; content?: string; tags?: string[] };
+type HistoryMessageRow = { role?: 'user' | 'assistant'; content?: string };
+type AttachmentInput = { type?: string; name?: string; url?: string };
 
 // ========== 内存限流器：防止 API 滥用 ==========
 // 方案 B：传统服务器环境（单实例部署）
@@ -134,7 +138,7 @@ async function createCreativeSession(userId: string) {
   if (error || !created) {
     throw new Error(`创建会话失败: ${error?.message || '未知错误'}`);
   }
-  return created as any;
+  return created as SessionRow;
 }
 
 async function ensureCreativeSession(userId: string, preferredSessionId?: string | null) {
@@ -147,7 +151,7 @@ async function ensureCreativeSession(userId: string, preferredSessionId?: string
       .eq('user_id', userId)
       .eq('agent_type', 'creative')
       .single();
-    if (existing) return existing as any;
+    if (existing) return existing as SessionRow;
   }
   return createCreativeSession(userId);
 }
@@ -205,7 +209,7 @@ interface MemoryCandidate {
   keywords: string[];
 }
 
-function sanitizeToolParams(input: unknown): Record<string, any> {
+function sanitizeToolParams(input: unknown): Record<string, unknown> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
   const source = input as Record<string, unknown>;
   const out: Record<string, unknown> = {};
@@ -220,10 +224,10 @@ function sanitizeToolParams(input: unknown): Record<string, any> {
       out[key] = value;
     }
   }
-  return out as Record<string, any>;
+  return out;
 }
 
-function validateToolCall(toolName: string, params: Record<string, any>): string | null {
+function validateToolCall(toolName: string, params: Record<string, unknown>): string | null {
   if (HIGH_RISK_TOOLS.has(toolName) && !params?.confirmed_by_user) {
     return `工具 ${toolName} 需要用户确认，请先征得用户同意并传入 confirmed_by_user=true`;
   }
@@ -341,7 +345,7 @@ function buildToolResultCardPart(
 
 function extractToolExternalIds(
   toolName: string,
-  rawData: Record<string, any>
+  rawData: Record<string, unknown>
 ): {
   canonicalTaskId: string | null;
   externalIds: Record<string, string>;
@@ -360,7 +364,11 @@ function extractToolExternalIds(
 
   if (toolName === 'batch_generate' && Array.isArray(rawData.results)) {
     const batchTaskIds = rawData.results
-      .map((item: any) => (typeof item?.taskId === 'string' ? item.taskId.trim() : ''))
+      .map((item: unknown) => {
+        if (!item || typeof item !== 'object') return '';
+        const taskId = (item as Record<string, unknown>).taskId;
+        return typeof taskId === 'string' ? taskId.trim() : '';
+      })
       .filter(Boolean);
     if (batchTaskIds.length > 0) externalIds.batch_task_ids = batchTaskIds.join(',');
   }
@@ -374,26 +382,44 @@ function extractToolExternalIds(
   return { canonicalTaskId, externalIds };
 }
 
-function buildStructuredCardPart(parsed: any): { type: 'card'; cardType: string; data: Record<string, unknown> } | null {
-  if (!parsed || typeof parsed !== 'object' || typeof parsed.type !== 'string') return null;
-  if (parsed.type === 'video_analysis') {
+function buildStructuredCardPart(parsed: unknown): { type: 'card'; cardType: string; data: Record<string, unknown> } | null {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const parsedRecord = parsed as Record<string, unknown>;
+  const parsedType = typeof parsedRecord.type === 'string' ? parsedRecord.type : '';
+  if (!parsedType) return null;
+  if (parsedType === 'video_analysis') {
     return {
       type: 'card',
       cardType: 'video_analysis',
-      data: typeof parsed.data === 'object' && parsed.data ? parsed.data : { content: parsed.content || '' },
+      data:
+        typeof parsedRecord.data === 'object' && parsedRecord.data
+          ? (parsedRecord.data as Record<string, unknown>)
+          : { content: typeof parsedRecord.content === 'string' ? parsedRecord.content : '' },
     };
   }
-  if (parsed.type === 'task_submitted' || parsed.type === 'task_done') {
+  if (parsedType === 'task_submitted' || parsedType === 'task_done') {
     return {
       type: 'card',
-      cardType: parsed.type,
+      cardType: parsedType,
       data: {
-        ...(typeof parsed.data === 'object' && parsed.data ? parsed.data : {}),
-        content: typeof parsed.content === 'string' ? parsed.content : '',
+        ...(typeof parsedRecord.data === 'object' && parsedRecord.data ? (parsedRecord.data as Record<string, unknown>) : {}),
+        content: typeof parsedRecord.content === 'string' ? parsedRecord.content : '',
       },
     };
   }
   return null;
+}
+
+function invokeTool(
+  toolsMap: Record<string, unknown>,
+  toolName: string,
+  toolParams: Record<string, unknown>
+): Promise<unknown> {
+  const candidate = toolsMap[toolName];
+  if (typeof candidate !== 'function') {
+    throw new Error(`未知工具: ${toolName}`);
+  }
+  return (candidate as (params: Record<string, unknown>) => Promise<unknown>)(toolParams);
 }
 
 /**
@@ -473,8 +499,8 @@ export async function POST(request: NextRequest) {
 
     // ========== 双笔记本系统：加载记忆 ==========
     const supabase = getSupabaseClient();
-    let conversationHistory: any[] = [];
-    let userPreferences: any[] = [];
+    let conversationHistory: HistoryMessageRow[] = [];
+    let userPreferences: UserPreferenceRow[] = [];
 
     if (userId) {
       // 📔 笔记本1号：对话历史（最近24小时）
@@ -485,7 +511,7 @@ export async function POST(request: NextRequest) {
         .eq('session_id', session?.id)
         .order('created_at', { ascending: true }); // 正序（最早→最近），用于前端显示
 
-      conversationHistory = historyData || [];
+      conversationHistory = (historyData as HistoryMessageRow[]) || [];
       console.log(`📔 [笔记本1号] 加载 ${conversationHistory.length} 条对话历史`);
 
       // 📕 笔记本2号：用户偏好（永久保存）
@@ -495,7 +521,7 @@ export async function POST(request: NextRequest) {
         .eq('user_id', userId)
         .order('last_updated_at', { ascending: false });
 
-      userPreferences = preferencesData || [];
+      userPreferences = (preferencesData as UserPreferenceRow[]) || [];
       console.log(`📕 [笔记本2号] 加载 ${userPreferences.length} 条用户偏好`);
     }
 
@@ -524,7 +550,7 @@ export async function POST(request: NextRequest) {
     let userMessageContent = message || '';
     
     if (attachments && attachments.length > 0) {
-      const attachmentDescs = attachments.map((a: any) => {
+      const attachmentDescs = attachments.map((a: AttachmentInput) => {
         switch (a.type) {
           case 'video':
             return `[视频: ${a.name}]\nURL: ${a.url}`;
@@ -541,6 +567,7 @@ export async function POST(request: NextRequest) {
     }
     // 4. 获取工具（webSearchEnabled 参数传递给工具层，由AI自主决定是否使用联网搜索）
     const tools = toolsService.getAllTools(webSearchEnabled);
+    const toolMap = tools as Record<string, unknown>;
 
     // 5. 构建消息列表
     const messages: Message[] = [{ role: 'system', content: finalSystemPrompt }];
@@ -549,22 +576,24 @@ export async function POST(request: NextRequest) {
     // AI看到的是倒序（最近的在最上面）
     const normalizedClientHistory = Array.isArray(history)
       ? history
-          .filter((item: any) => item && (item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string')
+          .filter((item: HistoryMessageRow) => item && (item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string')
           .slice(-20)
       : [];
 
     if (normalizedClientHistory.length > 0) {
       for (const msg of normalizedClientHistory) {
-        messages.push({ role: msg.role, content: msg.content });
+        if (typeof msg.content === 'string' && (msg.role === 'user' || msg.role === 'assistant')) {
+          messages.push({ role: msg.role, content: msg.content });
+        }
       }
       console.log(`📔 [笔记本1号] 使用前端会话历史 ${normalizedClientHistory.length} 条`);
     } else if (conversationHistory.length > 0) {
       const reversedHistory = [...conversationHistory].reverse(); // 倒序
       for (const msg of reversedHistory) {
         if (msg.role === 'user') {
-          messages.push({ role: 'user', content: msg.content });
+          if (typeof msg.content === 'string') messages.push({ role: 'user', content: msg.content });
         } else if (msg.role === 'assistant') {
-          messages.push({ role: 'assistant', content: msg.content });
+          if (typeof msg.content === 'string') messages.push({ role: 'assistant', content: msg.content });
         }
       }
       console.log(`📔 [笔记本1号] 倒序添加 ${reversedHistory.length} 条历史消息给AI`);
@@ -631,7 +660,7 @@ export async function POST(request: NextRequest) {
             });
 
             for await (const chunk of response) {
-              const rawContent = (chunk as any).content;
+              const rawContent = (chunk as { content?: unknown }).content;
               const content = typeof rawContent === 'string' ? rawContent : '';
               if (content) {
                 assistantMessage += content;
@@ -732,7 +761,7 @@ export async function POST(request: NextRequest) {
             }
 
             // 检查是否是工具调用（支持多种格式）
-            const toolCalls: Array<{name: string; params: Record<string, any>; thought?: string}> = [];
+            const toolCalls: Array<{name: string; params: Record<string, unknown>; thought?: string}> = [];
             
             // 格式1: {type: 'tool_call', tool: 'xxx', params: {...}}
             if (parsed.type === 'tool_call' && parsed.tool) {
@@ -819,6 +848,40 @@ export async function POST(request: NextRequest) {
                       parent_task_id: workerTaskId,
                       tool: toolName,
                     });
+                  } else if (toolName === 'submit_video_task') {
+                    const ensuredVideoTask = await taskStateService.ensureTask({
+                      userId,
+                      sessionId: session.id,
+                      taskType: 'video_generate',
+                      clientRequestId: `${workerTaskId}:submit_video_task:${Date.now()}`,
+                      inputData: {
+                        parent_task_id: workerTaskId,
+                        tool: toolName,
+                        params: toolParams,
+                      },
+                    });
+                    runtimeTaskId = ensuredVideoTask.id;
+                    await taskStateService.appendEvent(runtimeTaskId, userId, session.id, 'video_generate_submitted', {
+                      parent_task_id: workerTaskId,
+                      tool: toolName,
+                    });
+                  } else if (toolName === 'batch_generate') {
+                    const ensuredBatchTask = await taskStateService.ensureTask({
+                      userId,
+                      sessionId: session.id,
+                      taskType: 'batch_generate',
+                      clientRequestId: `${workerTaskId}:batch_generate:${Date.now()}`,
+                      inputData: {
+                        parent_task_id: workerTaskId,
+                        tool: toolName,
+                        params: toolParams,
+                      },
+                    });
+                    runtimeTaskId = ensuredBatchTask.id;
+                    await taskStateService.appendEvent(runtimeTaskId, userId, session.id, 'batch_generate_submitted', {
+                      parent_task_id: workerTaskId,
+                      tool: toolName,
+                    });
                   }
 
                   await taskStateService.appendTaskItem({
@@ -830,10 +893,10 @@ export async function POST(request: NextRequest) {
                   });
                   void (async () => {
                     try {
-                      const result = await (tools as any)[toolName](toolParams);
-                      const normalizedResult = (result && typeof result === 'object' ? result : { success: false, error: '工具返回无效结果' }) as Record<string, any>;
+                      const result = await invokeTool(toolMap, toolName, toolParams);
+                      const normalizedResult = (result && typeof result === 'object' ? result : { success: false, error: '工具返回无效结果' }) as Record<string, unknown>;
                       const rawData = (normalizedResult.data && typeof normalizedResult.data === 'object')
-                        ? (normalizedResult.data as Record<string, any>)
+                        ? (normalizedResult.data as Record<string, unknown>)
                         : {};
                       const { canonicalTaskId: externalCanonicalId, externalIds } = extractToolExternalIds(toolName, rawData);
                       const canonicalTaskId = externalCanonicalId || runtimeTaskId;
@@ -844,8 +907,30 @@ export async function POST(request: NextRequest) {
                         query_id: canonicalTaskId,
                         worker_task_id: runtimeTaskId,
                       };
-                      const succeeded = !!normalizedResult?.success;
+                      const succeeded = normalizedResult.success === true;
+                      const errorMessage = typeof normalizedResult.error === 'string' ? normalizedResult.error : '工具执行失败';
                       if (longToolMode === 'submission' && succeeded) {
+                        if (toolName === 'submit_video_task') {
+                          const submittedVideoId = typeof rawData.video_id === 'string' ? rawData.video_id : null;
+                          const submittedSeedanceTaskId =
+                            typeof rawData.seedance_task_id === 'string'
+                              ? rawData.seedance_task_id
+                              : (typeof rawData.task_id === 'string' ? rawData.task_id : null);
+                          await taskStateService.transitionTask(runtimeTaskId, 'running', {
+                            progress: 30,
+                            output_data: {
+                              submit_result: normalizedResult.data ?? null,
+                              submission_tool: toolName,
+                            },
+                            input_data: {
+                              parent_task_id: workerTaskId,
+                              tool: toolName,
+                              params: toolParams,
+                              video_id: submittedVideoId,
+                              seedance_task_id: submittedSeedanceTaskId,
+                            },
+                          });
+                        }
                         await taskStateService.appendTaskItem({
                           taskId: runtimeTaskId,
                           userId,
@@ -860,13 +945,15 @@ export async function POST(request: NextRequest) {
                           external_task_ids: externalIds,
                           canonical_task_id: canonicalTaskId,
                         });
-                        await taskStateService.transitionTask(runtimeTaskId, 'running', {
-                          progress: 35,
-                          output_data: {
-                            submit_result: normalizedResult.data ?? null,
-                            submission_tool: toolName,
-                          },
-                        });
+                        if (toolName !== 'submit_video_task') {
+                          await taskStateService.transitionTask(runtimeTaskId, 'running', {
+                            progress: 35,
+                            output_data: {
+                              submit_result: normalizedResult.data ?? null,
+                              submission_tool: toolName,
+                            },
+                          });
+                        }
                       } else {
                       await taskStateService.appendTaskItem({
                         taskId: runtimeTaskId,
@@ -875,14 +962,14 @@ export async function POST(request: NextRequest) {
                         status: succeeded ? 'succeeded' : 'failed',
                         inputData: { tool: toolName, params: toolParams },
                         outputData: { result: normalizedResult.data ?? null },
-                        errorMessage: succeeded ? null : (normalizedResult?.error || '工具执行失败'),
+                        errorMessage: succeeded ? null : errorMessage,
                       });
                       await taskStateService.appendEvent(runtimeTaskId, userId, session.id, succeeded ? 'task_item_succeeded' : 'task_item_failed', {
                         tool: toolName,
                         result: normalizedResult.data ?? null,
                         external_task_ids: externalIds,
                         canonical_task_id: canonicalTaskId,
-                        error: succeeded ? null : (normalizedResult?.error || '工具执行失败'),
+                        error: succeeded ? null : errorMessage,
                       });
                       await taskStateService.aggregateTaskFromItems(runtimeTaskId);
                       }
@@ -927,11 +1014,17 @@ export async function POST(request: NextRequest) {
                 }
 
                 try {
-                  const result = await (tools as any)[toolName](toolParams);
+                  const result = await invokeTool(toolMap, toolName, toolParams);
+                  const resultRecord = result && typeof result === 'object' ? (result as Record<string, unknown>) : {};
+                  const toolCardResult = {
+                    success: resultRecord.success === true,
+                    data: resultRecord.data,
+                    error: resultRecord.error,
+                  };
                   sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(result) });
-                  emitPart(buildToolResultCardPart(toolName, result), 'tool_result');
-                  if (toolName === 'generate_script' && result?.success) {
-                    const scriptTablePart = buildScriptTablePartFromUnknown(result.data);
+                  emitPart(buildToolResultCardPart(toolName, toolCardResult), 'tool_result');
+                  if (toolName === 'generate_script' && resultRecord.success === true) {
+                    const scriptTablePart = buildScriptTablePartFromUnknown(resultRecord.data);
                     if (scriptTablePart) emitPart(scriptTablePart, 'tool_generate_script');
                   }
                   messages.push({ role: 'user', content: `[工具调用结果]\n工具: ${toolName}\n结果: ${JSON.stringify(result)}` });
@@ -1050,7 +1143,7 @@ export async function POST(request: NextRequest) {
         // 🔧 修复：确保流在循环结束后关闭
         try {
           controller.close();
-        } catch (e) {
+        } catch {
           // 流可能已经关闭，忽略错误
         }
       }

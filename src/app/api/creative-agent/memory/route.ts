@@ -5,6 +5,21 @@ import { S3Storage } from 'coze-coding-dev-sdk';
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+interface MemoryRow {
+  id: string;
+  title?: string;
+  summary?: string;
+  keywords?: string[];
+  created_at?: string;
+}
+
+interface MemoryTypeStatRow {
+  memory_type?: string;
+}
+function isMemoryRow(value: unknown): value is MemoryRow {
+  if (!value || typeof value !== 'object') return false;
+  return typeof (value as Record<string, unknown>).id === 'string';
+}
 
 // 初始化对象存储
 const storage = new S3Storage({
@@ -155,19 +170,22 @@ async function handleFileLearning(request: NextRequest, userId: string) {
   if (!memory) {
     return NextResponse.json({ error: '存储记忆失败：未返回数据' }, { status: 500 });
   }
+  if (!isMemoryRow(memory)) {
+    return NextResponse.json({ error: '存储记忆失败：数据异常' }, { status: 500 });
+  }
 
-  const memoryAny = memory as any;
+  const memoryRow = memory;
 
   return NextResponse.json({
     success: true,
     memory: {
-      id: memoryAny.id,
-      title: memoryAny.title,
-      summary: memoryAny.summary,
-      keywords: memoryAny.keywords,
+      id: memoryRow.id,
+      title: memoryRow.title,
+      summary: memoryRow.summary,
+      keywords: memoryRow.keywords,
       fileType: parsedDoc.metadata.fileType,
       wordCount: parsedDoc.metadata.wordCount,
-      createdAt: memoryAny.created_at,
+      createdAt: memoryRow.created_at,
     },
     message: `已学习文件「${file.name}」，提取了 ${parsedDoc.metadata.wordCount} 字内容`,
   });
@@ -218,16 +236,19 @@ async function handleTextLearning(body: {
   if (!memory) {
     return NextResponse.json({ error: '存储失败：未返回数据' }, { status: 500 });
   }
+  if (!isMemoryRow(memory)) {
+    return NextResponse.json({ error: '存储失败：数据异常' }, { status: 500 });
+  }
 
-  const memoryAny = memory as any;
+  const memoryRow = memory;
 
   return NextResponse.json({
     success: true,
     memory: {
-      id: memoryAny.id,
-      title: memoryAny.title,
-      summary: memoryAny.summary,
-      keywords: memoryAny.keywords,
+      id: memoryRow.id,
+      title: memoryRow.title,
+      summary: memoryRow.summary,
+      keywords: memoryRow.keywords,
     },
   });
 }
@@ -356,14 +377,14 @@ export async function GET(request: NextRequest) {
       .eq('user_id', decoded.userId);
 
     const typeStats: Record<string, number> = {};
-    (stats || [])?.forEach((m: any) => {
-      const key = m.memory_type as string;
+    ((stats || []) as MemoryTypeStatRow[])?.forEach((m) => {
+      const key = typeof m.memory_type === 'string' ? m.memory_type : 'unknown';
       typeStats[key] = (typeStats[key] || 0) + 1;
     });
 
     return NextResponse.json({
       memories,
-      total: (memories as any[])?.length || 0,
+      total: memories?.length || 0,
       stats: typeStats,
     });
   } catch (error) {

@@ -4,11 +4,30 @@ import { LearningLibraryStorage, VideoStorageService } from '@/lib/tos-storage';
 import { videoLearningService } from '@/lib/video-learning-service';
 import { HeaderUtils } from 'coze-coding-dev-sdk';
 import jwt from 'jsonwebtoken';
-import { VideoLinkParser, VideoPlatform, PLATFORM_CONFIG } from '@/lib/video-link-parser';
+import { VideoLinkParser, PLATFORM_CONFIG } from '@/lib/video-link-parser';
 import Busboy from 'busboy';
-import { Writable } from 'stream';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+interface LearningRow {
+  id: string;
+  user_id?: string;
+  video_key?: string;
+  analysis_status?: string;
+  video_url?: string;
+  video_name?: string;
+  video_style?: string;
+  summary?: string;
+  key_learnings?: string[];
+}
+
+interface LearningStatusStatRow {
+  analysis_status?: string;
+}
+
+function isLearningRow(value: unknown): value is LearningRow {
+  if (!value || typeof value !== 'object') return false;
+  return typeof (value as Record<string, unknown>).id === 'string';
+}
 
 // 配置API路由以支持大文件上传和长时间处理
 export const runtime = 'nodejs';
@@ -95,7 +114,7 @@ async function handleVideoUploadStreaming(
   userId: string,
   headers: Record<string, string>
 ): Promise<NextResponse> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     let fileName = 'video.mp4';
     let fileType = 'video/mp4';
@@ -153,8 +172,13 @@ async function handleVideoUploadStreaming(
           fileType
         );
 
-        // 生成访问 URL（24 小时有效）
-        const fileUrl = await LearningLibraryStorage.getLearningVideoUrl(fileKey, 24 * 60 * 60);
+        // 优先使用永久公开 URL，失败时降级签名 URL
+        const fileUrl = await VideoStorageService.setPublicRead(fileKey)
+          .then(async (success: boolean) => {
+            if (success) return VideoStorageService.getVideoPublicUrl(fileKey);
+            return await LearningLibraryStorage.getLearningVideoUrl(fileKey, 24 * 60 * 60);
+          })
+          .catch(async () => await LearningLibraryStorage.getLearningVideoUrl(fileKey, 24 * 60 * 60));
 
         // 创建学习记录
         const client = getSupabaseClient();
@@ -182,19 +206,23 @@ async function handleVideoUploadStreaming(
           return;
         }
 
-        const learningAny = learning as any;
+        if (!isLearningRow(learning)) {
+          resolve(NextResponse.json({ error: '学习记录数据异常' }, { status: 500 }));
+          return;
+        }
+        const learningRow = learning;
 
         // 异步启动分析
         setTimeout(() => {
-          startVideoAnalysis(learningAny.id as string, fileUrl, fileName, headers);
+          startVideoAnalysis(learningRow.id, fileUrl, fileName, headers);
         }, 1000);
 
-        console.log(`[学习库] 上传成功，学习记录ID: ${learningAny.id}`);
+        console.log(`[学习库] 上传成功，学习记录ID: ${learningRow.id}`);
 
         resolve(NextResponse.json({
           success: true,
           learning: {
-            id: learningAny.id,
+            id: learningRow.id,
             name: fileName,
             size: fileSize,
             status: 'pending',
@@ -216,7 +244,6 @@ async function handleVideoUploadStreaming(
     });
 
     // 将请求体传输给busboy
-    // @ts-ignore - request.body is ReadableStream
     const reader = request.body?.getReader();
     if (reader) {
       const pump = async (): Promise<void> => {
@@ -297,8 +324,13 @@ async function handleVideoLinkUpload(
         'video/mp4'
       );
 
-      // 生成访问 URL
-      const storedUrl = await LearningLibraryStorage.getLearningVideoUrl(fileKey, 24 * 60 * 60);
+      // 优先使用永久公开 URL，失败时降级签名 URL
+      const storedUrl = await VideoStorageService.setPublicRead(fileKey)
+        .then(async (success: boolean) => {
+          if (success) return VideoStorageService.getVideoPublicUrl(fileKey);
+          return await LearningLibraryStorage.getLearningVideoUrl(fileKey, 24 * 60 * 60);
+        })
+        .catch(async () => await LearningLibraryStorage.getLearningVideoUrl(fileKey, 24 * 60 * 60));
 
       // 创建学习记录
       const client = getSupabaseClient();
@@ -339,17 +371,20 @@ async function handleVideoLinkUpload(
         return NextResponse.json({ error: '创建学习记录失败' }, { status: 500 });
       }
 
-      const learningAny = learning as any;
+      if (!isLearningRow(learning)) {
+        return NextResponse.json({ error: '学习记录数据异常' }, { status: 500 });
+      }
+      const learningRow = learning;
 
       // 异步启动分析
       setTimeout(() => {
-        startVideoAnalysis(learningAny.id as string, storedUrl, videoInfo.title, headers);
+        startVideoAnalysis(learningRow.id, storedUrl, videoInfo.title, headers);
       }, 1000);
 
       return NextResponse.json({
         success: true,
         learning: {
-          id: learningAny.id,
+          id: learningRow.id,
           name: videoInfo.title,
           size,
           duration: videoInfo.duration,
@@ -406,19 +441,21 @@ async function handleAnalyzeVideo(
     return NextResponse.json({ error: '学习记录不存在' }, { status: 404 });
   }
 
-  const learningAny = learning as any;
-
-  if (learningAny.analysis_status === 'processing') {
+  if (!isLearningRow(learning)) {
+    return NextResponse.json({ error: '学习记录数据异常' }, { status: 500 });
+  }
+  const learningRow = learning;
+  if (learningRow.analysis_status === 'processing') {
     return NextResponse.json({ error: '视频正在分析中' }, { status: 400 });
   }
 
-  if (learningAny.analysis_status === 'completed') {
+  if (learningRow.analysis_status === 'completed') {
     return NextResponse.json({ 
       message: '视频已分析完成',
       result: {
-        style: learningAny.video_style,
-        summary: learningAny.summary,
-        keyLearnings: learningAny.key_learnings,
+        style: learningRow.video_style,
+        summary: learningRow.summary,
+        keyLearnings: learningRow.key_learnings,
       }
     });
   }
@@ -430,7 +467,7 @@ async function handleAnalyzeVideo(
     .eq('id', learningId);
 
   // 异步执行分析
-  startVideoAnalysis(learningId, learningAny.video_url as string, learningAny.video_name as string, headers);
+  startVideoAnalysis(learningId, String(learningRow.video_url || ''), String(learningRow.video_name || ''), headers);
 
   return NextResponse.json({
     success: true,
@@ -564,7 +601,7 @@ export async function GET(request: NextRequest) {
       query = query.eq('analysis_status', status);
     }
 
-    const { data: learnings, count, error } = await query;
+    const { data: learnings, error } = await query;
 
     if (error) {
       throw new Error(`查询失败: ${error.message}`);
@@ -577,14 +614,14 @@ export async function GET(request: NextRequest) {
       .eq('user_id', decoded.userId);
 
     const statusStats: Record<string, number> = {};
-    (stats || []).forEach((l: any) => {
-      const key = l.analysis_status as string;
+    ((stats || []) as LearningStatusStatRow[]).forEach((l) => {
+      const key = typeof l.analysis_status === 'string' ? l.analysis_status : 'unknown';
       statusStats[key] = (statusStats[key] || 0) + 1;
     });
 
     return NextResponse.json({
       learnings,
-      total: (learnings as any[])?.length || 0,
+      total: learnings?.length || 0,
       stats: statusStats,
     });
   } catch (error) {
@@ -630,12 +667,13 @@ export async function DELETE(request: NextRequest) {
       .eq('id', learningId)
       .single();
 
-    if (!learning || (learning as any).user_id !== decoded.userId) {
+    const learningRow = (learning || null) as LearningRow | null;
+    if (!learningRow || learningRow.user_id !== decoded.userId) {
       return NextResponse.json({ error: '记录不存在或无权删除' }, { status: 404 });
     }
 
     // 删除 TOS 文件
-    const videoKey = (learning as any).video_key;
+    const videoKey = learningRow.video_key;
     if (videoKey) {
       try {
         await LearningLibraryStorage.deleteLearningVideo(videoKey as string);

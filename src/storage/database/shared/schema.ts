@@ -342,8 +342,8 @@ export const xiaohaiWorkflows = pgTable(
 
     // 生成内容
     selected_script: jsonb("selected_script"), // 用户选择的脚本
-    generated_scripts: jsonb("generated_scripts").$type<any[]>(), // 生成的所有脚本
-    generated_videos: jsonb("generated_videos").$type<any[]>(), // 生成的所有视频
+    generated_scripts: jsonb("generated_scripts").$type<unknown[]>(), // 生成的所有脚本
+    generated_videos: jsonb("generated_videos").$type<unknown[]>(), // 生成的所有视频
 
     // 用户偏好（Phase 3 使用）
     preferred_style: varchar("preferred_style", { length: 50 }), // 偏好风格

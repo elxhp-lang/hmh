@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
 /**
  * 健康检查 API
@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
  * 
  * 返回服务状态信息，用于监控和自动修复
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
   const healthInfo = {
     status: 'ok',
     service: 'nextjs',

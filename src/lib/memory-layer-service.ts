@@ -57,6 +57,19 @@ export interface SessionState {
   recoveryInfo?: string;
 }
 
+interface DbErrorLike {
+  message?: string;
+}
+
+interface IdRow {
+  id: string;
+}
+
+function isIdRow(value: unknown): value is IdRow {
+  if (!value || typeof value !== 'object') return false;
+  return typeof (value as Record<string, unknown>).id === 'string';
+}
+
 /**
  * 记忆分层服务类
  */
@@ -161,13 +174,16 @@ export class MemoryLayerService {
       .single();
 
     if (error) {
-      throw new Error(`添加到工作缓冲区失败: ${(error as any).message}`);
+      throw new Error(`添加到工作缓冲区失败: ${(error as DbErrorLike).message || '未知错误'}`);
     }
     if (!data) {
       throw new Error('添加到工作缓冲区失败：未返回数据');
     }
 
-    return (data as any).id as string;
+    if (!isIdRow(data)) {
+      throw new Error('添加到工作缓冲区失败：返回数据缺少ID');
+    }
+    return data.id;
   }
 
   /**
@@ -223,7 +239,7 @@ export class MemoryLayerService {
     const distilledIds: string[] = [];
 
     // 批量蒸馏
-    for (const item of bufferItems as any[]) {
+    for (const item of bufferItems as Array<Record<string, unknown>>) {
       try {
         // 使用 LLM 蒸馏内容
         const distilledContent = await this.distillContent(item.content as string, item.title as string);
@@ -251,11 +267,13 @@ export class MemoryLayerService {
             .from('agent_memories')
             .update({
               status: MemoryStatus.DISTILLED,
-              parent_memory_id: (longTermMemory as any).id,
+              parent_memory_id: isIdRow(longTermMemory) ? longTermMemory.id : undefined,
             })
             .eq('id', item.id as string);
 
-          distilledIds.push((longTermMemory as any).id as string);
+          if (isIdRow(longTermMemory)) {
+            distilledIds.push(longTermMemory.id);
+          }
         }
       } catch (e) {
         console.error(`蒸馏失败 [${item.id}]:`, e);
@@ -376,7 +394,7 @@ ${content}
 
     if (existing) {
       // 追加到现有笔记
-      const existingAny = existing as any;
+      const existingAny = existing as Record<string, unknown>;
       const newContent = (existingAny.content as string) + '\n\n---\n\n' + params.content;
       await client
         .from('agent_memories')
@@ -404,7 +422,7 @@ ${content}
       throw new Error(`创建每日笔记失败: ${error.message}`);
     }
 
-    return (data as any)?.id as string || '';
+    return ((data as Partial<IdRow> | null)?.id as string) || '';
   }
 
   /**

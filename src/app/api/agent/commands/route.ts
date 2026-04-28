@@ -41,6 +41,11 @@ interface CommandRequest {
   data?: Record<string, unknown>;
 }
 
+interface BillingStatRow {
+  task_type?: string;
+  amount?: number;
+}
+
 /**
  * 验证 API 密钥
  */
@@ -309,9 +314,10 @@ async function getFinancialOverview() {
     .gte('created_at', today);
   
   const taskTypeAmounts: Record<string, number> = {};
-  billingStats?.forEach(b => {
-    const bAny = b as any;
-    taskTypeAmounts[bAny.task_type as string] = (taskTypeAmounts[bAny.task_type as string] || 0) + (bAny.amount || 0);
+  (billingStats as BillingStatRow[] | null)?.forEach((b) => {
+    const taskType = typeof b.task_type === 'string' ? b.task_type : 'unknown';
+    const amount = typeof b.amount === 'number' ? b.amount : 0;
+    taskTypeAmounts[taskType] = (taskTypeAmounts[taskType] || 0) + amount;
   });
   
   return {

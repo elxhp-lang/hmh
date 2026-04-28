@@ -17,6 +17,17 @@ const ALLOWED_ORIGINS = [
   'https://*.coze.cn',        // 备用
 ];
 
+type PutBucketCors = (params: {
+  bucket: string;
+  CORSRules: Array<{
+    AllowedOrigins: string[];
+    AllowedMethods: string[];
+    AllowedHeaders: string[];
+    ExposeHeaders: string[];
+    MaxAgeSeconds: number;
+  }>;
+}) => Promise<unknown>;
+
 export async function initTosCors(): Promise<boolean> {
   try {
     console.log('[TOS CORS 初始化] 开始配置跨域规则...');
@@ -24,7 +35,7 @@ export async function initTosCors(): Promise<boolean> {
     const client = getTosClient();
 
     // 配置 CORS 规则
-    await (client.putBucketCORS as any)({
+    await (client.putBucketCORS as unknown as PutBucketCors)({
       bucket: BUCKET_NAME,
       CORSRules: [
         {

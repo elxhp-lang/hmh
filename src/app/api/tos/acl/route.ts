@@ -20,12 +20,21 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { VideoStorageService } from '@/lib/tos-storage';
+import { getUserFromRequest } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
+    const user = getUserFromRequest(request);
+    if (!user) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 });
+    }
+    if (!['super_admin', 'admin'].includes(user.role)) {
+      return NextResponse.json({ error: '权限不足' }, { status: 403 });
+    }
+
     const body = await request.json();
     const { key, acl = 'public-read' } = body;
 

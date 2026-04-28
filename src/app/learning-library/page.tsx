@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import NextImage from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -75,7 +76,7 @@ interface Stats {
 }
 
 export default function LearningLibraryPage() {
-  const { token, user } = useAuth();
+  const { token } = useAuth();
   const [learnings, setLearnings] = useState<LearningVideo[]>([]);
   const [stats, setStats] = useState<Stats>({});
   const [loading, setLoading] = useState(true);
@@ -602,10 +603,12 @@ export default function LearningLibraryPage() {
                       {/* 视频图标 */}
                       <div className="w-16 h-16 rounded-lg bg-secondary flex items-center justify-center shrink-0 relative">
                         {learning.scene_analysis?.cover ? (
-                          <img 
+                          <NextImage
                             src={learning.scene_analysis.cover} 
                             alt="" 
+                            fill
                             className="w-full h-full object-cover rounded-lg"
+                            unoptimized
                           />
                         ) : (
                           <Video className="w-8 h-8 text-muted-foreground" />

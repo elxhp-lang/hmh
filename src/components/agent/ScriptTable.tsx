@@ -22,7 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Check, X, Clock, Image, Mic, User } from 'lucide-react';
+import { Check, Clock, Image as ImageIcon, Mic, User } from 'lucide-react';
 
 interface ScriptScene {
   time: string;
@@ -87,7 +87,7 @@ export function ScriptTable({
                   时间
                 </TableHead>
                 <TableHead className="font-medium">
-                  <Image className="w-4 h-4 inline mr-1" />
+                  <ImageIcon className="w-4 h-4 inline mr-1" />
                   画面内容
                 </TableHead>
                 <TableHead className="font-medium">

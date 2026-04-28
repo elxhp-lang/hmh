@@ -6,8 +6,6 @@
 
 import { LLMClient, Config } from 'coze-coding-dev-sdk';
 
-const client = new LLMClient(new Config());
-
 // ========== 类型定义 ==========
 
 export interface VisualFeatures {
@@ -38,6 +36,11 @@ export interface ImageAnalysisResult {
     selling_points: number;
   };
   source_image?: string;      // 来源图片
+}
+
+interface SellingPointRow {
+  content?: string;
+  source?: string;
 }
 
 export interface MultiImageAnalysisResult {
@@ -191,7 +194,7 @@ export class ImageAnalysisService {
             packaging_style: parsed.visual_features?.packaging_style || ''
           },
           is_contains_people: parsed.is_contains_people || false,
-          key_selling_points: (parsed.key_selling_points || []).map((p: any) => ({
+          key_selling_points: (parsed.key_selling_points || []).map((p: SellingPointRow) => ({
             content: p.content || '',
             source: p.source === 'text_extract' ? 'text_extract' : 'visual_infer'
           })),

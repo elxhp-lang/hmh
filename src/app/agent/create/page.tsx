@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { streamAgentRequest, apiRequest } from '@/lib/api';
+import { streamAgentRequest } from '@/lib/api';
 import { SSEEvent, MessagePart, getToolResultData } from '@/lib/agent-sse';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,28 +21,19 @@ import {
   Sparkles, 
   Loader2, 
   Download, 
-  Share2, 
-  RefreshCw, 
   Layers, 
   Eye,
-  Plus,
-  Settings2,
-  MessageSquare,
   Bell,
   X,
-  ExternalLink,
-  Terminal,
   Bug,
   Save,
   Trash2,
-  Play,
-  Maximize2,
   Search,
   Square
 } from 'lucide-react';
 
 // 新组件
-import { MessageBubble, MessageBubbleProps, MessageGroup } from '@/components/agent/MessageBubble';
+import { MessageGroup } from '@/components/agent/MessageBubble';
 import { HybridInput, HybridInputAttachment } from '@/components/agent/HybridInput';
 
 // ========== 调试日志系统 ==========
@@ -51,13 +42,33 @@ interface DebugLog {
   timestamp: Date;
   category: 'state' | 'sse' | 'api' | 'render' | 'error';
   action: string;
-  detail: any;
+  detail: string;
+}
+
+interface HistoryVideoRow {
+  id: string;
+  prompt?: string;
+  public_video_url?: string;
+  video_url?: string;
+  result_url?: string;
+  cover_url?: string;
+  status?: string;
+  created_at?: string;
+}
+
+interface LearningMaterialRow {
+  id: string;
+  title?: string;
+  video_name?: string;
+  video_type?: string;
+  cover_url?: string;
+  created_at?: string;
 }
 
 const DEBUG_LOGS: DebugLog[] = [];
 const MAX_DEBUG_LOGS = 100;
 
-const addDebugLog = (category: DebugLog['category'], action: string, detail: any) => {
+const addDebugLog = (category: DebugLog['category'], action: string, detail: unknown) => {
   const log: DebugLog = {
     id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     timestamp: new Date(),
@@ -598,14 +609,13 @@ export default function CreativeAgentPageNew() {
   });
   
   // 右侧数据
-  const [templates, setTemplates] = useState<TemplateItem[]>([]);
+  const [templates] = useState<TemplateItem[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [materials, setMaterials] = useState<MaterialItem[]>([]);
   const [workerTasks, setWorkerTasks] = useState<WorkerTaskItem[]>([]);
 
   // 联网搜索状态
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
   
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -640,8 +650,6 @@ export default function CreativeAgentPageNew() {
     );
   });
   const groupedSessions = groupSessionsByTime(filteredSessions);
-  const lastUserMessage = [...messages].reverse().find((msg) => msg.type === 'user' && msg.content.trim());
-
   const loadSessions = useCallback(async (options?: { preferredSessionId?: string | null }) => {
     if (!token) return;
     try {
@@ -774,7 +782,7 @@ export default function CreativeAgentPageNew() {
     return () => {
       historyAbortRef.current?.abort();
     };
-  }, [user?.user_id, token, activeSessionId, sessionReady, historyReloadSeed]);
+  }, [user?.user_id, token, activeSessionId, sessionReady, historyReloadSeed, isLoading]);
 
   useEffect(() => {
     return () => {
@@ -912,12 +920,12 @@ export default function CreativeAgentPageNew() {
         });
         if (historyRes.ok) {
           const historyData = await historyRes.json();
-          setHistory(historyData.videos?.slice(0, 8).map((v: any) => ({
+          setHistory((historyData.videos as HistoryVideoRow[] | undefined)?.slice(0, 8).map((v) => ({
             id: v.id,
             title: v.prompt?.substring(0, 20) || '视频创作',
             thumbnail: v.public_video_url || v.video_url || v.result_url || v.cover_url,
             status: v.status === 'completed' || v.status === 'succeeded' ? 'completed' : 'processing',
-            createdAt: new Date(v.created_at)
+            createdAt: new Date(v.created_at || Date.now())
           })) || []);
         }
         
@@ -927,12 +935,12 @@ export default function CreativeAgentPageNew() {
         });
         if (materialsRes.ok) {
           const materialsData = await materialsRes.json();
-          setMaterials(materialsData.learnings?.slice(0, 10).map((m: any) => ({
+          setMaterials((materialsData.learnings as LearningMaterialRow[] | undefined)?.slice(0, 10).map((m) => ({
             id: m.id,
             name: m.title || m.video_name || '未命名素材',
             type: m.video_type === 'video' ? 'video' : 'image',
             thumbnail: m.cover_url,
-            createdAt: new Date(m.created_at)
+            createdAt: new Date(m.created_at || Date.now())
           })) || []);
         }
       } catch (error) {

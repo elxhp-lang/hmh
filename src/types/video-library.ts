@@ -24,7 +24,8 @@ export interface VideoLibraryItem {
   status: string;
   tos_key: string | null;
   video_url: string | null;
-  public_video_url?: string;
+  public_video_url?: string | null;
+  result_url?: string | null;
   ratio: string;
   duration: number;
   cost: number | null;

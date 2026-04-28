@@ -2,6 +2,9 @@ import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { MessagePart } from '@/lib/agent-sse';
 
 type WorkerTaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'partial_succeeded';
+interface WorkerTaskItemStatusRow {
+  status?: string | null;
+}
 
 const ALLOWED_TRANSITIONS: Record<WorkerTaskStatus, WorkerTaskStatus[]> = {
   queued: ['running', 'cancelled', 'failed'],
@@ -171,13 +174,13 @@ export class TaskStateService {
       .from('worker_task_items')
       .select('status')
       .eq('task_id', taskId);
-    const list = items || [];
+    const list = (items || []) as WorkerTaskItemStatusRow[];
     if (!list.length) return;
     const total = list.length;
-    const succeeded = list.filter((x: any) => x.status === 'succeeded').length;
-    const failed = list.filter((x: any) => x.status === 'failed').length;
-    const running = list.filter((x: any) => x.status === 'running').length;
-    const queued = list.filter((x: any) => x.status === 'queued').length;
+    const succeeded = list.filter((x) => x.status === 'succeeded').length;
+    const failed = list.filter((x) => x.status === 'failed').length;
+    const running = list.filter((x) => x.status === 'running').length;
+    const queued = list.filter((x) => x.status === 'queued').length;
     const progress = Math.max(1, Math.min(100, Math.round((succeeded / total) * 100)));
 
     if (running > 0 || queued > 0) {

@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { sendApprovalResultNotification, ASSIGNABLE_ROLES, type AssignableRole } from '@/lib/feishu-webhook';
+interface ApproveUserRow {
+  username: string;
+}
+function isApproveUserRow(value: unknown): value is ApproveUserRow {
+  if (!value || typeof value !== 'object') return false;
+  return typeof (value as Record<string, unknown>).username === 'string';
+}
 
 /**
  * 飞书智能体审核接口
@@ -97,9 +104,11 @@ export async function POST(request: NextRequest) {
 
       // 发送飞书通知
       const roleLabel = ASSIGNABLE_ROLES.find(r => r.value === role)?.label || role;
-      sendApprovalResultNotification((user as any).username as string, true, role as string).catch(err => {
-        console.error('发送审核结果通知失败:', err);
-      });
+      if (isApproveUserRow(user)) {
+        sendApprovalResultNotification(user.username, true, role as string).catch(err => {
+          console.error('发送审核结果通知失败:', err);
+        });
+      }
 
       return NextResponse.json({
         success: true,
@@ -134,9 +143,11 @@ export async function POST(request: NextRequest) {
       });
 
       // 发送飞书通知
-      sendApprovalResultNotification((user as any).username as string, false, '').catch(err => {
-        console.error('发送审核结果通知失败:', err);
-      });
+      if (isApproveUserRow(user)) {
+        sendApprovalResultNotification(user.username, false, '').catch(err => {
+          console.error('发送审核结果通知失败:', err);
+        });
+      }
 
       return NextResponse.json({
         success: true,

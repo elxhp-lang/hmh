@@ -5,8 +5,7 @@
  */
 
 import { LLMClient, Config } from 'coze-coding-dev-sdk';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
-import { productLibraryService, Product, ProductImage } from '@/lib/product-library-service';
+import { productLibraryService, Product } from '@/lib/product-library-service';
 import { imageIntegrationService } from '@/lib/image-integration-service';
 
 // ========== 类型定义 ==========

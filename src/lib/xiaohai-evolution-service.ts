@@ -40,6 +40,12 @@ export class XiaohaiEvolutionService {
     return this._supabase;
   }
 
+  private isLearningRecord(value: unknown): value is LearningRecord {
+    if (!value || typeof value !== 'object') return false
+    const row = value as Record<string, unknown>
+    return typeof row.id === 'string' && typeof row.content === 'string'
+  }
+
   /**
    * 记录学习
    */
@@ -74,7 +80,7 @@ export class XiaohaiEvolutionService {
 
       if (error) throw error
 
-      console.log(`[进化服务] 记录学习成功: ${recordType}`, { id: (data as any)?.id, userId })
+      console.log(`[进化服务] 记录学习成功: ${recordType}`, { id: this.isLearningRecord(data) ? data.id : 'unknown', userId })
 
       return { success: true, data: data as unknown as LearningRecord | undefined }
     } catch (error) {
@@ -114,9 +120,11 @@ export class XiaohaiEvolutionService {
       // 按关键词匹配排序
       if (query) {
         const queryKeywords = extractKeywords(query)
-        const scored = ((data || []) as any[]).map((item: any) => ({
+        const rawRecords = (data || []) as unknown[]
+        const records = rawRecords.filter((item) => this.isLearningRecord(item))
+        const scored: Array<LearningRecord & { relevanceScore: number }> = records.map((item) => ({
           ...item,
-          relevanceScore: (item.tags as string[])?.filter((tag: string) =>
+          relevanceScore: (item.tags || []).filter((tag: string) =>
             queryKeywords.some(qk => tag.toLowerCase().includes(qk.toLowerCase()))
           ).length || 0
         }))
@@ -124,8 +132,13 @@ export class XiaohaiEvolutionService {
         return {
           success: true,
           data: scored
-            .sort((a: any, b: any) => b.relevanceScore - a.relevanceScore)
+            .sort((a, b) => b.relevanceScore - a.relevanceScore)
             .slice(0, limit)
+            .map((item) => {
+              const { relevanceScore, ...record } = item
+              void relevanceScore
+              return record as LearningRecord
+            })
         }
       }
 

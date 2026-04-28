@@ -9,9 +9,42 @@ import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { createBillingClient } from './volcengine-client';
 import { SearchClient } from 'coze-coding-dev-sdk';
 import {
-  PRICING_TABLE,
   VIDEO_GENERATION_BENCHMARK,
 } from './finance-types';
+
+interface BillingRow {
+  created_at: string;
+  amount: number | string;
+}
+
+interface OverviewItem {
+  productName: string;
+  realAmount: number;
+}
+
+interface DbErrorLike {
+  message?: string;
+}
+
+interface IdRow {
+  id?: string;
+}
+
+interface BudgetTaskRow {
+  params?: string;
+}
+
+interface WebSearchRow {
+  title?: string;
+  snippet?: string;
+  site_name?: string;
+}
+
+function isBillingRow(value: unknown): value is BillingRow {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.created_at === 'string' && (typeof row.amount === 'number' || typeof row.amount === 'string');
+}
 
 // ========== 火山引擎客户端创建 ==========
 
@@ -289,7 +322,7 @@ export class FinanceToolExecutor {
     
     // 按日期分组
     const dailyData: Record<string, number> = {};
-    (bills || []).forEach((bill: any) => {
+    (bills || []).filter(isBillingRow).forEach((bill) => {
       const date = (bill.created_at as string).split('T')[0];
       dailyData[date] = (dailyData[date] || 0) + formatAmount(bill.amount);
     });
@@ -376,7 +409,7 @@ export class FinanceToolExecutor {
     
     // 按产品分组
     const breakdown: Record<string, number> = {};
-    (overview.overview || []).forEach((item: any) => {
+    ((overview.overview || []) as OverviewItem[]).forEach((item) => {
       breakdown[item.productName] = item.realAmount;
     });
     
@@ -523,13 +556,13 @@ export class FinanceToolExecutor {
       .select()
       .single();
     
-    if (error) throw new Error(`创建任务失败: ${(error as any).message}`);
+    if (error) throw new Error(`创建任务失败: ${(error as DbErrorLike).message || '未知错误'}`);
     if (!data) throw new Error('创建任务失败：未返回数据');
     
     return {
       success: true,
       data: {
-        taskId: (data as any).id as string,
+        taskId: (data as IdRow).id as string,
         taskName,
         taskType,
         cronExpression,
@@ -592,7 +625,7 @@ export class FinanceToolExecutor {
     // "0 9 * * 1" = 每周一9点
     
     if (parts.length >= 5) {
-      const [minute, hour, , , dayOfWeek] = parts;
+      const [minute, hour] = parts;
       
       // 计算下次执行时间
       const next = new Date(now);
@@ -664,7 +697,7 @@ export class FinanceToolExecutor {
       .eq('task_type', 'budget_alert')
       .eq('status', 'active');
     
-    const b = (budgets as any[])?.[0];
+    const b = ((budgets || []) as BudgetTaskRow[])?.[0];
     let budgetAmount = 0;
     let alertThreshold = 0.8;
     
@@ -719,7 +752,7 @@ export class FinanceToolExecutor {
 
       if (result.web_items && result.web_items.length > 0) {
         const resultText = result.web_items
-          .map((r: any, i: number) => `${i + 1}. 【${r.title}】\n   ${r.snippet}\n   来源: ${r.site_name || '未知网站'}`)
+          .map((r: WebSearchRow, i: number) => `${i + 1}. 【${r.title}】\n   ${r.snippet}\n   来源: ${r.site_name || '未知网站'}`)
           .join('\n\n');
 
         return {

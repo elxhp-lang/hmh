@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ScriptTemplateService } from '@/lib/script-template-service';
 import { SeedanceClient } from '@/lib/seedance-client';
+import type { VideoRatio } from '@/lib/seedance-client';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { TaskStateService } from '@/lib/server/task-state-service';
 import { requireAuth } from '@/lib/server/api-kit';
@@ -19,6 +20,10 @@ const taskStateService = new TaskStateService();
 
 // 最大批量数量限制
 const MAX_BATCH_SIZE = 20;
+function normalizeVideoRatio(value?: string): VideoRatio {
+  const allowed: VideoRatio[] = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive'];
+  return allowed.includes(value as VideoRatio) ? (value as VideoRatio) : '9:16';
+}
 
 interface TaskResult {
   rowIndex: number;
@@ -117,14 +122,14 @@ export async function POST(request: NextRequest) {
           videoResult = await seedanceClient.imageToVideo(first_frame_url, result.prompt, {
             model: 'doubao-seedance-2-0-260128',
             duration: template.duration,
-            ratio: template.aspect_ratio as any,
+            ratio: normalizeVideoRatio(template.aspect_ratio),
           });
         } else {
           // 无首帧图：使用文生视频
           videoResult = await seedanceClient.textToVideo(result.prompt, {
             model: 'doubao-seedance-2-0-260128',
             duration: template.duration,
-            ratio: template.aspect_ratio as any,
+            ratio: normalizeVideoRatio(template.aspect_ratio),
           });
         }
 

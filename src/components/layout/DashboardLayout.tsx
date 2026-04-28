@@ -18,7 +18,6 @@ import {
   Video,
   FileText,
   Users,
-  MessageSquare,
   LogOut,
   Menu,
   X,
@@ -29,7 +28,6 @@ import {
   Settings,
   User,
   Bell,
-  Check,
   CheckCheck,
   VideoIcon,
   AlertCircle,
@@ -73,14 +71,51 @@ interface Notification {
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
-  const { isAdmin, isFinance } = usePermission();
+  usePermission();
   const router = useRouter();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [loadingNotifications, setLoadingNotifications] = useState(false);
+
+  async function loadProfile() {
+    try {
+      const token = localStorage.getItem('haimeng_token');
+      if (!token) return;
+      
+      const response = await fetch('/api/user/profile', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setProfile(data.user);
+      }
+    } catch (error) {
+      console.error('加载用户资料失败:', error);
+    }
+  }
+
+  // 加载消息通知
+  async function loadNotifications() {
+    const token = localStorage.getItem('haimeng_token');
+    if (!token) return;
+
+    try {
+      const response = await fetch('/api/notifications?limit=10', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setNotifications(data.notifications || []);
+        setUnreadCount(data.unreadCount || 0);
+      }
+    } catch (error) {
+      console.error('加载通知失败:', error);
+    }
+  }
 
   // 加载用户资料
   useEffect(() => {
@@ -103,47 +138,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       window.removeEventListener('profileUpdated', handleProfileUpdate);
     };
   }, []);
-
-  const loadProfile = async () => {
-    try {
-      const token = localStorage.getItem('haimeng_token');
-      if (!token) return;
-      
-      const response = await fetch('/api/user/profile', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setProfile(data.user);
-      }
-    } catch (error) {
-      console.error('加载用户资料失败:', error);
-    }
-  };
-
-  // 加载消息通知
-  const loadNotifications = async () => {
-    const token = localStorage.getItem('haimeng_token');
-    if (!token) return;
-
-    try {
-      setLoadingNotifications(true);
-      const response = await fetch('/api/notifications?limit=10', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setNotifications(data.notifications || []);
-        setUnreadCount(data.unreadCount || 0);
-      }
-    } catch (error) {
-      console.error('加载通知失败:', error);
-    } finally {
-      setLoadingNotifications(false);
-    }
-  };
 
   // 标记单个通知为已读
   const markAsRead = async (id: string) => {

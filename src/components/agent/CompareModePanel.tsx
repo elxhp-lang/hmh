@@ -20,7 +20,6 @@ import {
   XCircle,
   Sparkles,
   Brain,
-  TrendingUp,
   Info,
 } from 'lucide-react';
 

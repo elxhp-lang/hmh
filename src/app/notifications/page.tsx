@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,11 +30,7 @@ export default function NotificationsPage() {
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const limit = 20;
 
-  useEffect(() => {
-    loadNotifications();
-  }, [page, filter]);
-
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async () => {
     const token = localStorage.getItem('haimeng_token');
     if (!token) return;
 
@@ -63,7 +59,11 @@ export default function NotificationsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter, page]);
+
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
 
   const markAsRead = async (id: string) => {
     const token = localStorage.getItem('haimeng_token');

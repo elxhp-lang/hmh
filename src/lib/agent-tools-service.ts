@@ -6,6 +6,7 @@
 
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { SeedanceClient } from './seedance-client';
+import type { VideoRatio } from './seedance-client';
 import { VideoLearningService } from './video-learning-service';
 import { ScriptGeneratorService } from './script-generator-service';
 import { ScriptTemplateService } from './script-template-service';
@@ -45,6 +46,170 @@ export interface VideoTask {
   video_url?: string;
   error?: string;
   created_at: string;
+}
+
+interface WorkerTaskRow {
+  id: string;
+  status?: string | null;
+  progress?: number | null;
+  error_message?: string | null;
+  output_data?: Record<string, unknown> | null;
+}
+
+interface WorkerTaskItemRow {
+  output_data?: Record<string, unknown> | null;
+}
+
+interface UploadedFileRow {
+  file_id: string;
+  file_url?: string | null;
+}
+
+interface VideoRecordRow {
+  id?: string;
+  task_id?: string;
+  status?: string;
+  public_video_url?: string;
+  video_url?: string;
+  result_url?: string;
+  error_message?: string;
+}
+
+interface WebSearchItem {
+  title?: string;
+  snippet?: string;
+  site_name?: string;
+}
+
+interface DbErrorLike {
+  code?: string;
+  message?: string;
+}
+
+interface CreativeMemoryRow {
+  user_id?: string;
+  created_at?: string;
+  content?: {
+    common_styles?: string[];
+    common_duration?: number;
+    common_aspect_ratio?: string;
+    industry?: string;
+    product_tags?: string[];
+  };
+}
+
+interface AgentSessionRow {
+  id: string;
+  messages?: unknown[];
+}
+
+interface LearningLibraryRow {
+  id: string;
+  video_name: string;
+  video_url: string;
+  video_type?: string | null;
+  video_style?: string | null;
+  summary?: string | null;
+  key_learnings?: string[] | null;
+  created_at?: string;
+}
+
+interface BatchVideoResult {
+  success: boolean;
+  taskId?: string;
+  prompt?: string;
+  error?: string;
+}
+
+interface ProductRow {
+  id: string;
+  product_name: string;
+  product_description?: string | null;
+  images?: string[] | null;
+  category?: string | null;
+  tags?: string[] | null;
+}
+
+interface UploadedMaterialRow {
+  file_id: string;
+  file_name: string;
+  file_type: string;
+  file_url: string;
+  category?: string | null;
+  tags?: string[] | null;
+  created_at?: string;
+  file_size?: number | null;
+}
+
+type LearningRecordType = 'correction' | 'success' | 'error' | 'improvement';
+
+function isWorkerTaskRow(value: unknown): value is WorkerTaskRow {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.id === 'string';
+}
+
+function isUploadedFileRow(value: unknown): value is UploadedFileRow {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.file_id === 'string';
+}
+
+function isAgentSessionRow(value: unknown): value is AgentSessionRow {
+  if (!value || typeof value !== 'object') return false;
+  return typeof (value as Record<string, unknown>).id === 'string';
+}
+
+function isLearningLibraryRow(value: unknown): value is LearningLibraryRow {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.id === 'string' && typeof row.video_name === 'string' && typeof row.video_url === 'string';
+}
+
+function isProductRow(value: unknown): value is ProductRow {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.id === 'string' && typeof row.product_name === 'string';
+}
+
+function isUploadedMaterialRow(value: unknown): value is UploadedMaterialRow {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row.file_id === 'string' &&
+    typeof row.file_name === 'string' &&
+    typeof row.file_type === 'string' &&
+    typeof row.file_url === 'string'
+  );
+}
+
+function getErrorCode(error: unknown): string | undefined {
+  return typeof error === 'object' && error !== null ? (error as DbErrorLike).code : undefined;
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === 'object' && error !== null && typeof (error as DbErrorLike).message === 'string') {
+    return (error as DbErrorLike).message as string;
+  }
+  return fallback;
+}
+
+function normalizeVideoRatio(value?: string): VideoRatio {
+  const allowed: VideoRatio[] = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive'];
+  return allowed.includes(value as VideoRatio) ? (value as VideoRatio) : '9:16';
+}
+
+function normalizeLearningRecordType(value?: string): LearningRecordType | undefined {
+  const allowed: LearningRecordType[] = ['correction', 'success', 'error', 'improvement'];
+  return allowed.includes(value as LearningRecordType) ? (value as LearningRecordType) : undefined;
+}
+
+function normalizeVideoTaskStatus(status?: string): 'pending' | 'processing' | 'completed' | 'failed' {
+  const normalized = (status || '').toLowerCase();
+  if (['succeeded', 'completed', 'success'].includes(normalized)) return 'completed';
+  if (['failed', 'error', 'cancelled'].includes(normalized)) return 'failed';
+  if (['running', 'processing', 'queued', 'in_progress'].includes(normalized)) return 'processing';
+  return 'pending';
 }
 
 // ========== 工具服务 ==========
@@ -118,7 +283,7 @@ export class AgentToolsService {
     success: boolean;
     data?: {
       summary: string;
-      results: any[];
+      results: WebSearchItem[];
       formatted: string;
     };
     error?: string;
@@ -135,7 +300,7 @@ export class AgentToolsService {
 
       if (result.web_items && result.web_items.length > 0) {
         const resultText = result.web_items
-          .map((r: any, i: number) => `${i + 1}. 【${r.title}】\n   ${r.snippet}\n   来源: ${r.site_name || '未知网站'}`)
+          .map((r: WebSearchItem, i: number) => `${i + 1}. 【${r.title || '无标题'}】\n   ${r.snippet || ''}\n   来源: ${r.site_name || '未知网站'}`)
           .join('\n\n');
 
         return {
@@ -190,9 +355,9 @@ export class AgentToolsService {
         .eq('memory_type', 'user_preference')
         .single();
 
-      if (error && (error as any).code !== 'PGRST116') {
+      if (error && getErrorCode(error) !== 'PGRST116') {
         console.error('查询用户偏好失败:', error);
-        return { success: false, error: (error as any).message || '查询失败' };
+        return { success: false, error: getErrorMessage(error, '查询失败') };
       }
 
       // 如果没有偏好记录，返回默认值
@@ -211,17 +376,18 @@ export class AgentToolsService {
         };
       }
 
-      const content = (data as any).content || {};
+      const row = (data || {}) as CreativeMemoryRow;
+      const content = row.content || {};
       return {
         success: true,
         data: {
-          user_id: (data as any).user_id as string,
+          user_id: row.user_id || userId,
           common_styles: (content.common_styles as string[]) || ['现代简约'],
           common_duration: (content.common_duration as number) || 8,
           common_aspect_ratio: (content.common_aspect_ratio as string) || '9:16',
           industry: (content.industry as string) || '',
           product_tags: (content.product_tags as string[]) || [],
-          last_used_at: (data as any).created_at as string
+          last_used_at: row.created_at || new Date().toISOString(),
         }
       };
     } catch (error) {
@@ -291,15 +457,19 @@ export class AgentToolsService {
       }
 
       if (data && data.length > 0) {
+        const rows: ProductRow[] = [];
+        for (const item of data || []) {
+          if (isProductRow(item)) rows.push(item);
+        }
         return {
           success: true,
-          data: data.map((p: any) => ({
-            id: p.id as string,
-            product_name: p.product_name as string,
-            description: (p.product_description as string) || '',
-            images: (p.images as string[]) || [],
-            category: (p.category as string) || '',
-            tags: (p.tags as string[]) || []
+          data: rows.map((p) => ({
+            id: String(p.id),
+            product_name: String(p.product_name),
+            description: typeof p.product_description === 'string' ? p.product_description : '',
+            images: Array.isArray(p.images) ? p.images : [],
+            category: typeof p.category === 'string' ? p.category : '',
+            tags: Array.isArray(p.tags) ? p.tags : []
           }))
         };
       }
@@ -322,7 +492,7 @@ export class AgentToolsService {
    */
   async analyzeVideo(videoUrl: string, videoName?: string, headers?: Record<string, string>): Promise<{
     success: boolean;
-    data?: any;
+    data?: unknown;
     error?: string;
   }> {
     try {
@@ -345,7 +515,7 @@ export class AgentToolsService {
     categoryHint?: string
   ): Promise<{
     success: boolean;
-    data?: any;
+    data?: unknown;
     error?: string;
   }> {
     try {
@@ -367,7 +537,7 @@ export class AgentToolsService {
     categoryHint?: string
   ): Promise<{
     success: boolean;
-    data?: any;
+    data?: unknown;
     error?: string;
   }> {
     try {
@@ -391,7 +561,7 @@ export class AgentToolsService {
     reference?: string
   ): Promise<{
     success: boolean;
-    data?: any[];
+    data?: unknown[];
     error?: string;
   }> {
     try {
@@ -450,10 +620,8 @@ export class AgentToolsService {
         ? 'doubao-seedance-2-0-fast-260128' 
         : 'doubao-seedance-2-0-260128';
 
-      const ratio = options?.aspect_ratio as any || '9:16';
+      const ratio = normalizeVideoRatio(options?.aspect_ratio);
       const taskDuration = duration || 8;
-
-      let task;
       let seedanceTaskId: string = '';
 
       // 根据参数选择调用方式
@@ -462,17 +630,17 @@ export class AgentToolsService {
         console.log('[submitVideoTask] 使用 reference_video 模式');
         // 不等待完成，只获取 task_id
         const createResponse = await this.seedance.createTask({
-          model: modelId as any,
+          model: modelId,
           content: [{ type: 'text', text: prompt }],
           duration: taskDuration,
           ratio,
-        } as any);
+        });
         seedanceTaskId = createResponse.id;
         console.log('[submitVideoTask] reference_video 模式获取到 seedanceTaskId:', seedanceTaskId);
       } else if (firstFrameUrl) {
         // 图生视频模式 - 不等待完成
         const createResponse = await this.seedance.createTask({
-          model: modelId as any,
+          model: modelId,
           content: [
             { type: 'image_url', image_url: { url: firstFrameUrl }, role: 'first_frame' },
             { type: 'text', text: prompt }
@@ -485,7 +653,7 @@ export class AgentToolsService {
       } else {
         // 文生视频模式 - 不等待完成
         const createResponse = await this.seedance.createTask({
-          model: modelId as any,
+          model: modelId,
           content: [{ type: 'text', text: prompt }],
           duration: taskDuration,
           ratio,
@@ -589,10 +757,17 @@ export class AgentToolsService {
         workerQuery = workerQuery.eq('user_id', currentUserId);
       }
       const { data: workerTask } = await workerQuery.single();
-      const resolveWorkerResult = async (workerTaskRow: any, fallbackTaskId: string) => {
-        const workerData = workerTaskRow as any;
-        const outputData = (workerData.output_data || {}) as Record<string, any>;
-        const submitResult = (outputData.submit_result || {}) as Record<string, any>;
+      const resolveWorkerResult = async (workerTaskRow: WorkerTaskRow, fallbackTaskId: string) => {
+        const workerData = workerTaskRow;
+        const outputData =
+          workerData.output_data && typeof workerData.output_data === 'object'
+            ? workerData.output_data
+            : {};
+        const submitResultRaw = outputData.submit_result;
+        const submitResult =
+          submitResultRaw && typeof submitResultRaw === 'object'
+            ? (submitResultRaw as Record<string, unknown>)
+            : {};
         const canonicalTaskId =
           (typeof submitResult.seedance_task_id === 'string' && submitResult.seedance_task_id) ||
           (typeof submitResult.task_id === 'string' && submitResult.task_id) ||
@@ -623,10 +798,10 @@ export class AgentToolsService {
             .order('item_index', { ascending: false })
             .limit(8);
           for (const item of latestItems || []) {
-            const itemOutput = (item as any)?.output_data;
+            const itemOutput = (item as WorkerTaskItemRow)?.output_data;
             if (!itemOutput || typeof itemOutput !== 'object') continue;
             const result = (itemOutput.result && typeof itemOutput.result === 'object')
-              ? itemOutput.result
+              ? (itemOutput.result as Record<string, unknown>)
               : itemOutput;
             if (!workerVideoUrl && typeof result.public_video_url === 'string' && result.public_video_url) {
               workerVideoUrl = result.public_video_url;
@@ -644,12 +819,15 @@ export class AgentToolsService {
           }
         }
 
+        const taskKind: 'image' | 'video' | 'worker' = workerImageUrl || workerImageId
+          ? 'image'
+          : (workerVideoUrl ? 'video' : 'worker');
         return {
           success: true as const,
           data: {
             query_id: canonicalTaskId,
             task_id: canonicalTaskId,
-            task_kind: workerImageUrl || workerImageId ? 'image' : (workerVideoUrl ? 'video' : 'worker'),
+            task_kind: taskKind,
             worker_task_id: String(workerData.id),
             seedance_task_id:
               (typeof submitResult.seedance_task_id === 'string' && submitResult.seedance_task_id) ||
@@ -666,8 +844,8 @@ export class AgentToolsService {
         };
       };
 
-      if (workerTask) {
-        return await resolveWorkerResult(workerTask, String((workerTask as any).id || taskIdOrVideoId));
+      if (isWorkerTaskRow(workerTask)) {
+        return await resolveWorkerResult(workerTask, workerTask.id || taskIdOrVideoId);
       }
 
       // 1) 再尝试用工具外部 ID 反查 worker task（seedance_task_id / image_id 等）
@@ -681,7 +859,7 @@ export class AgentToolsService {
           workerByExternalQuery = workerByExternalQuery.eq('user_id', currentUserId);
         }
         const { data: workerByExternal } = await workerByExternalQuery.single();
-        if (workerByExternal) {
+        if (isWorkerTaskRow(workerByExternal)) {
           return await resolveWorkerResult(workerByExternal, taskIdOrVideoId);
         }
       }
@@ -692,16 +870,17 @@ export class AgentToolsService {
         .select('file_id,file_url,created_by,created_at')
         .eq('file_id', taskIdOrVideoId)
         .single();
-      if (imageFile) {
+      if (isUploadedFileRow(imageFile)) {
+        const file = imageFile;
         return {
           success: true,
           data: {
             query_id: taskIdOrVideoId,
             task_id: taskIdOrVideoId,
             task_kind: 'image',
-            image_id: String((imageFile as any).file_id),
-            image_url: String((imageFile as any).file_url || ''),
-            public_image_url: String((imageFile as any).file_url || ''),
+            image_id: String(file.file_id),
+            image_url: String(file.file_url || ''),
+            public_image_url: String(file.file_url || ''),
             status: 'succeeded',
             progress: 100,
           },
@@ -734,20 +913,20 @@ export class AgentToolsService {
       }
 
       // 如果已完成，查询 Seedance 获取最新状态
-      const d = data as any;
-      let status = d?.status || 'pending';
-      let videoUrl = d?.video_url || d?.result_url;
+      const d = data as VideoRecordRow;
+      let status = normalizeVideoTaskStatus(d?.status);
+      let videoUrl = d?.public_video_url || d?.video_url || d?.result_url;
       let progress = 0;
 
       if (status === 'processing' || status === 'pending') {
         try {
           // 使用 getTask 方法查询状态（用数据库中的 Seedance task_id）
           const taskStatus = await this.seedance.getTask(d.task_id as string);
-          status = taskStatus.status || status;
+          status = normalizeVideoTaskStatus(taskStatus.status);
           videoUrl = taskStatus.content?.video_url || videoUrl;
           
           // 计算进度
-          if (status === 'succeeded') {
+          if (status === 'completed') {
             progress = 100;
           } else if (status === 'processing') {
             progress = 50;
@@ -757,6 +936,35 @@ export class AgentToolsService {
         } catch (e) {
           // 忽略查询错误
           console.warn('[queryTaskStatus] 查询 Seedance 状态失败:', e);
+        }
+      }
+
+      // 视频终态回写 worker：避免提交型任务长期停留在 running
+      const isVideoTerminal = status === 'completed' || status === 'failed';
+      if (isVideoTerminal) {
+        const externalId = (typeof d?.task_id === 'string' && d.task_id) ? d.task_id : taskIdOrVideoId;
+        const linkedWorkerTaskId = await this.findWorkerTaskIdByExternalId(externalId, currentUserId);
+        if (linkedWorkerTaskId) {
+          const nextWorkerStatus = status === 'failed' ? 'failed' : 'succeeded';
+          const patch: Record<string, unknown> = {
+            status: nextWorkerStatus,
+            progress: 100,
+            completed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            error_message: nextWorkerStatus === 'failed' ? (d?.error_message || '视频生成失败') : null,
+            output_data: {
+              submit_result: {
+                task_id: externalId,
+                seedance_task_id: externalId,
+                video_id: typeof d?.id === 'string' ? d.id : undefined,
+                public_video_url: d?.public_video_url || d?.result_url || d?.video_url || undefined,
+              },
+            },
+          };
+          await this.supabase
+            .from('worker_tasks')
+            .update(patch)
+            .eq('id', linkedWorkerTaskId);
         }
       }
 
@@ -786,9 +994,9 @@ export class AgentToolsService {
    * @param webSearchEnabled - 是否启用联网搜索
    */
   getAllTools(webSearchEnabled: boolean = false) {
-    const self = this;
+    this.webSearchEnabled = webSearchEnabled;
     return {
-      get_user_preference: async (_params: Record<string, any>) => 
+      get_user_preference: async () => 
         this.getUserPreference(this.getUserId()),
       
       // ========== 双笔记本系统：保存用户偏好（笔记本2号）==========
@@ -818,7 +1026,7 @@ export class AgentToolsService {
         url?: string;        // 模型可能使用这个参数名
         category_hint?: string;
         is_video?: boolean;
-        [key: string]: any;
+        [key: string]: unknown;
       }) => {
         // 处理参数可能是数组的情况
         const normalizedParams = Array.isArray(params) ? {} : params;
@@ -888,7 +1096,7 @@ export class AgentToolsService {
       
       // ========== 模板相关工具 ==========
       
-      get_templates: async (_params: Record<string, any>) =>
+      get_templates: async () =>
         this.getTemplates(),
       
       get_template: async (params: { template_id: string }) =>
@@ -977,15 +1185,15 @@ export class AgentToolsService {
         action?: 'append' | 'replace' | 'delete';
       }) => this.updateCollaborationMemory(params),
       
-      get_collaboration_status: async (_params: Record<string, any>) =>
+      get_collaboration_status: async () =>
         this.getCollaborationStatus(),
 
       // ========== 会话管理工具 ⭐ 新增（任务4）==========
       
-      get_session: async (_params: Record<string, any>) =>
+      get_session: async () =>
         this.getCurrentSession(),
       
-      clear_session: async (_params: Record<string, any>) =>
+      clear_session: async () =>
         this.clearCurrentSession(),
 
       // ========== 学习库工具（笔记本4号）==========
@@ -1118,9 +1326,10 @@ ${modification}
       });
       
       for await (const chunk of response) {
-        const content = (chunk as any).content || '';
-        if (content) {
-          modifiedScript += content;
+        const content = (chunk as { content?: unknown }).content;
+        const text = typeof content === 'string' ? content : '';
+        if (text) {
+          modifiedScript += text;
         }
       }
 
@@ -1269,7 +1478,7 @@ ${modification}
     error?: string;
   }> {
     try {
-      const updateData: Record<string, any> = {
+      const updateData: Record<string, unknown> = {
         updated_at: new Date().toISOString()
       };
 
@@ -1292,19 +1501,19 @@ ${modification}
 
       if (error) {
         console.error('更新素材失败:', error);
-        return { success: false, error: (error as any).message || '更新失败' };
+        return { success: false, error: getErrorMessage(error, '更新失败') };
       }
 
-      const d = data as any;
+      const d = data as UploadedMaterialRow | null;
       return {
         success: true,
         data: {
-          material_id: d?.file_id as string,
-          file_name: d?.file_name as string,
-          file_type: d?.file_type as string,
-          file_url: d?.file_url as string,
-          category: d?.category as string | undefined,
-          tags: d?.tags as string[] | undefined
+          material_id: d?.file_id || '',
+          file_name: d?.file_name || '',
+          file_type: d?.file_type || '',
+          file_url: d?.file_url || '',
+          category: d?.category || undefined,
+          tags: d?.tags || undefined
         }
       };
     } catch (error) {
@@ -1379,16 +1588,22 @@ ${modification}
       return {
         success: true,
         data: {
-          materials: (data || []).map((f: any) => ({
-            material_id: f.file_id as string,
-            file_name: f.file_name as string,
-            file_type: f.file_type as string,
-            file_url: f.file_url as string,
-            category: f.category as string | undefined,
-            tags: f.tags as string[] | undefined,
-            created_at: f.created_at as string,
-            file_size: f.file_size as number | undefined
-          })),
+          materials: (() => {
+            const rows: UploadedMaterialRow[] = [];
+            for (const item of data || []) {
+              if (isUploadedMaterialRow(item)) rows.push(item);
+            }
+            return rows.map((f) => ({
+            material_id: String(f.file_id),
+            file_name: String(f.file_name),
+            file_type: String(f.file_type),
+            file_url: String(f.file_url),
+            category: typeof f.category === 'string' ? f.category : undefined,
+            tags: Array.isArray(f.tags) ? f.tags : undefined,
+            created_at: typeof f.created_at === 'string' ? f.created_at : '',
+            file_size: typeof f.file_size === 'number' ? f.file_size : undefined
+            }));
+          })(),
           total: (count as number) || 0
         }
       };
@@ -1476,9 +1691,10 @@ ${modification}
       });
       
       for await (const chunk of response) {
-        const content = (chunk as any).content || '';
-        if (content) {
-          copywritingText += content;
+        const content = (chunk as { content?: unknown }).content;
+        const text = typeof content === 'string' ? content : '';
+        if (text) {
+          copywritingText += text;
         }
       }
 
@@ -1809,7 +2025,7 @@ ${modification}
   /**
    * 获取用户模板列表
    */
-  private async getTemplates(): Promise<{ success: boolean; data?: any; error?: string }> {
+  private async getTemplates(): Promise<{ success: boolean; data?: unknown; error?: string }> {
     try {
       const result = await this.templateService.getUserTemplates(this.getUserId());
       return result;
@@ -1821,7 +2037,7 @@ ${modification}
   /**
    * 获取单个模板
    */
-  private async getTemplate(templateId: string): Promise<{ success: boolean; data?: any; error?: string }> {
+  private async getTemplate(templateId: string): Promise<{ success: boolean; data?: unknown; error?: string }> {
     try {
       const result = await this.templateService.getTemplate(templateId);
       return result;
@@ -1841,7 +2057,7 @@ ${modification}
     style?: string;
     shots: Array<{ shot_time: string; content: string; transition: string; variables?: string[] }>;
     variable_desc?: Record<string, string>;
-  }): Promise<{ success: boolean; data?: any; error?: string }> {
+  }): Promise<{ success: boolean; data?: unknown; error?: string }> {
     try {
       const result = await this.templateService.createTemplate({
         template_name: params.template_name,
@@ -1869,7 +2085,7 @@ ${modification}
     template_id: string;
     data_rows: Array<Record<string, string>>;
     first_frame_url?: string;
-  }): Promise<{ success: boolean; data?: any; error?: string }> {
+  }): Promise<{ success: boolean; data?: unknown; error?: string }> {
     try {
       const templateResult = await this.templateService.getTemplate(params.template_id);
       if (!templateResult.success || !templateResult.data) {
@@ -1877,7 +2093,7 @@ ${modification}
       }
 
       const template = templateResult.data;
-      const results: any[] = [];
+      const results: BatchVideoResult[] = [];
 
       for (const row of params.data_rows) {
         const parseResult = this.templateService.parseTemplate(template, row);
@@ -1893,12 +2109,12 @@ ${modification}
         // 调用视频生成
         try {
           const videoResult = await this.seedance.textToVideo(parseResult.prompt, {
-            model: 'doubao-seedance-2-0-260128' as any,
+            model: 'doubao-seedance-2-0-260128',
             duration: template.duration,
-            ratio: template.aspect_ratio as any,
+            ratio: normalizeVideoRatio(template.aspect_ratio),
           });
-
-          const taskId = (videoResult as any).id || (videoResult as any).task_id || '';
+          const vr = videoResult as { id?: string; task_id?: string };
+          const taskId = vr.id || vr.task_id || '';
           
           results.push({
             success: true,
@@ -1939,7 +2155,7 @@ ${modification}
     success: boolean;
     data?: {
       session_id: string;
-      messages?: any[];
+      messages?: unknown[];
     };
     error?: string;
   }> {
@@ -1956,9 +2172,9 @@ ${modification}
         .limit(1)
         .single();
 
-      if (error && (error as any).code !== 'PGRST116') {
+      if (error && getErrorCode(error) !== 'PGRST116') {
         console.error('获取会话失败:', error);
-        return { success: false, error: (error as any).message || '获取失败' };
+        return { success: false, error: getErrorMessage(error, '获取失败') };
       }
 
       // 如果没有活跃会话，创建一个新会话
@@ -1977,23 +2193,28 @@ ${modification}
 
         if (createError) {
           console.error('创建会话失败:', createError);
-          return { success: false, error: (createError as any).message || '创建失败' };
+          return { success: false, error: getErrorMessage(createError, '创建失败') };
         }
+        const created = newSession as AgentSessionRow | null;
 
         return {
           success: true,
           data: {
-            session_id: (newSession as any)?.id as string,
-            messages: [] as any[]
+            session_id: created?.id || '',
+            messages: [],
           }
         };
       }
+      if (!isAgentSessionRow(session)) {
+        return { success: false, error: '会话数据异常' };
+      }
+      const activeSession = session;
 
       return {
         success: true,
         data: {
-          session_id: (session as any).id as string,
-          messages: (session as any).messages as any[] || []
+          session_id: activeSession.id,
+          messages: activeSession.messages || [],
         }
       };
     } catch (error) {
@@ -2055,13 +2276,14 @@ ${modification}
 
       if (error) {
         console.error('创建新会话失败:', error);
-        return { success: false, error: (error as any).message || '创建失败' };
+        return { success: false, error: getErrorMessage(error, '创建失败') };
       }
+      const created = newSession as AgentSessionRow | null;
 
       return {
         success: true,
         data: {
-          session_id: (newSession as any)?.id as string
+          session_id: created?.id || '',
         }
       };
     } catch (error) {
@@ -2192,22 +2414,23 @@ ${modification}
 
       if (error) {
         console.error('获取学习库失败:', error);
-        return { success: false, error: (error as any).message || '查询失败' };
+        return { success: false, error: getErrorMessage(error, '查询失败') };
       }
+      const rows = (data || []).filter(isLearningLibraryRow);
 
       return {
         success: true,
         data: {
-          videos: data?.map((v: any) => ({
-            id: v.id as string,
-            video_name: v.video_name as string,
-            video_url: v.video_url as string,
-            video_type: (v.video_type as string) || '',
-            video_style: (v.video_style as string) || '',
-            summary: (v.summary as string) || '',
-            key_learnings: (v.key_learnings as string[]) || [],
-            created_at: v.created_at as string
-          })) || [],
+          videos: rows.map((v) => ({
+            id: String(v.id),
+            video_name: String(v.video_name),
+            video_url: String(v.video_url),
+            video_type: typeof v.video_type === 'string' ? v.video_type : '',
+            video_style: typeof v.video_style === 'string' ? v.video_style : '',
+            summary: typeof v.summary === 'string' ? v.summary : '',
+            key_learnings: Array.isArray(v.key_learnings) ? v.key_learnings : [],
+            created_at: typeof v.created_at === 'string' ? v.created_at : '',
+          })),
           total: (count as number) || 0,
           page,
           pageSize
@@ -2260,20 +2483,21 @@ ${modification}
 
       if (error) {
         console.error('搜索学习库失败:', error);
-        return { success: false, error: (error as any).message || '搜索失败' };
+        return { success: false, error: getErrorMessage(error, '搜索失败') };
       }
+      const rows = (data || []).filter(isLearningLibraryRow);
 
       return {
         success: true,
-        data: data?.map((v: any) => ({
-          id: v.id as string,
-          video_name: v.video_name as string,
-          video_url: v.video_url as string,
-          video_type: (v.video_type as string) || '',
-          video_style: (v.video_style as string) || '',
-          summary: (v.summary as string) || '',
-          key_learnings: (v.key_learnings as string[]) || []
-        })) || []
+        data: rows.map((v) => ({
+          id: String(v.id),
+          video_name: String(v.video_name),
+          video_url: String(v.video_url),
+          video_type: typeof v.video_type === 'string' ? v.video_type : '',
+          video_style: typeof v.video_style === 'string' ? v.video_style : '',
+          summary: typeof v.summary === 'string' ? v.summary : '',
+          key_learnings: Array.isArray(v.key_learnings) ? v.key_learnings : [],
+        }))
       };
     } catch (error) {
       return {
@@ -2316,11 +2540,11 @@ ${modification}
         .single();
 
       if (existing) {
-        const e = existing as any;
+        const e = existing as { id?: string };
         return {
           success: true,
           data: {
-            library_id: e.id as string,
+            library_id: e.id || '',
             video_name: video_name || '已存在的视频',
             status: 'already_exists'
           }
@@ -2341,14 +2565,15 @@ ${modification}
 
       if (error) {
         console.error('同步到学习库失败:', error);
-        return { success: false, error: (error as any).message || '同步失败' };
+        return { success: false, error: getErrorMessage(error, '同步失败') };
       }
+      const inserted = data as { id?: string } | null;
 
-      console.log('已同步视频到学习库:', (data as any)?.id);
+      console.log('已同步视频到学习库:', inserted?.id);
       return {
         success: true,
         data: {
-          library_id: (data as any)?.id as string,
+          library_id: inserted?.id || '',
           video_name: video_name || '未命名视频',
           status: 'synced'
         }
@@ -2374,7 +2599,7 @@ ${modification}
     memory_type?: 'general' | 'preference' | 'experience' | 'rule' | 'document';
     memoryType?: 'general' | 'preference' | 'experience' | 'rule' | 'document';
     keywords: string[];
-  }): Promise<{ success: boolean; data?: any; error?: string }> {
+  }): Promise<{ success: boolean; data?: unknown; error?: string }> {
     try {
       const userId = this.getUserId();
       const memoryType = params.memoryType || params.memory_type;
@@ -2401,7 +2626,7 @@ ${modification}
     memory_type?: string;
     memoryType?: string;
     limit?: number;
-  }): Promise<{ success: boolean; data?: any[]; error?: string }> {
+  }): Promise<{ success: boolean; data?: unknown[]; error?: string }> {
     try {
       const userId = this.getUserId();
       const result = await this.memoryService.getMemories(
@@ -2423,7 +2648,7 @@ ${modification}
     keyword: string;
     memory_type?: string;
     memoryType?: string;
-  }): Promise<{ success: boolean; data?: any[]; error?: string }> {
+  }): Promise<{ success: boolean; data?: unknown[]; error?: string }> {
     try {
       const userId = this.getUserId();
       const result = await this.memoryService.searchMemories(
@@ -2449,10 +2674,10 @@ ${modification}
     feedback?: string;
     score?: number;
     tags?: string[];
-  }): Promise<{ success: boolean; data?: any; error?: string }> {
+  }): Promise<{ success: boolean; data?: unknown; error?: string }> {
     try {
       const userId = this.getUserId();
-      const recordType = params.recordType || params.record_type;
+      const recordType = normalizeLearningRecordType(params.recordType || params.record_type);
       if (!recordType) {
         return { success: false, error: '缺少 recordType 参数' };
       }
@@ -2481,13 +2706,14 @@ ${modification}
     record_type?: string;
     recordType?: string;
     limit?: number;
-  }): Promise<{ success: boolean; data?: any[]; error?: string }> {
+  }): Promise<{ success: boolean; data?: unknown[]; error?: string }> {
     try {
       const userId = this.getUserId();
+      const recordType = normalizeLearningRecordType(params.recordType || params.record_type);
       const result = await this.evolutionService.getLearningRecords(
         userId,
         params.query,
-        (params.recordType || params.record_type) as any,
+        recordType,
         params.limit || 10
       );
       return result;
@@ -2503,7 +2729,7 @@ ${modification}
     file_url: string;
     file_type: string;
     purpose?: string;
-  }): Promise<{ success: boolean; data?: any; error?: string; message?: string }> {
+  }): Promise<{ success: boolean; data?: unknown; error?: string; message?: string }> {
     // 文件分析功能暂时返回占位信息
     // TODO: 后续实现完整的文件解析逻辑
     return {

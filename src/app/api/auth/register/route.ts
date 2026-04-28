@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import bcrypt from 'bcryptjs';
 import { sendRegisterApprovalNotification } from '@/lib/feishu-webhook';
+interface RegisteredUserRow {
+  id: string;
+  username: string;
+  created_at: string;
+}
+function isRegisteredUserRow(value: unknown): value is RegisteredUserRow {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.id === 'string' && typeof row.username === 'string' && typeof row.created_at === 'string';
+}
 
 /**
  * 用户注册
@@ -100,13 +110,13 @@ export async function POST(request: NextRequest) {
     console.log(`[Register] 用户 ${username} 注册成功，存储路径: ${storagePath}`);
 
     // 非首个用户发送飞书审核通知
-    if (!isFirstUser && user) {
-      const userAny = user as any;
+    if (!isFirstUser && isRegisteredUserRow(user)) {
+      const registeredUser = user;
       // 异步发送通知，不阻塞注册流程
       sendRegisterApprovalNotification({
-        username: userAny.username as string,
-        user_id: userAny.id as string,
-        registered_at: new Date(userAny.created_at as string).toLocaleString('zh-CN'),
+        username: registeredUser.username,
+        user_id: registeredUser.id,
+        registered_at: new Date(registeredUser.created_at).toLocaleString('zh-CN'),
       }).catch(err => {
         console.error('发送飞书审核通知失败:', err);
       });

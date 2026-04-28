@@ -4,6 +4,17 @@ import { VideoStorageService } from '@/lib/tos-storage';
 import jwt, { TokenExpiredError, JsonWebTokenError } from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+interface VideoUrlRow {
+  user_id: string;
+  tos_key?: string | null;
+  public_video_url?: string | null;
+  result_url?: string | null;
+}
+
+function isVideoUrlRow(value: unknown): value is VideoUrlRow {
+  if (!value || typeof value !== 'object') return false;
+  return typeof (value as Record<string, unknown>).user_id === 'string';
+}
 
 /**
  * 获取视频签名 URL
@@ -73,19 +84,22 @@ export async function GET(request: NextRequest) {
 
     // 生成签名 URL
     let videoUrl: string;
-    const videoAny = video as any;
+    if (!isVideoUrlRow(video)) {
+      return NextResponse.json({ error: '视频数据异常' }, { status: 500 });
+    }
+    const videoRow = video;
 
-    if (videoAny.public_video_url) {
-      console.log(`[Video URL] 使用公开 URL: ${(videoAny.public_video_url as string).substring(0, 50)}...`);
-      videoUrl = videoAny.public_video_url as string;
-    } else if (videoAny.tos_key) {
+    if (videoRow.public_video_url) {
+      console.log(`[Video URL] 使用公开 URL: ${videoRow.public_video_url.substring(0, 50)}...`);
+      videoUrl = videoRow.public_video_url;
+    } else if (videoRow.tos_key) {
       // 优先使用 TOS 存储
-      console.log(`[Video URL] 使用 TOS 存储: ${videoAny.tos_key}`);
-      videoUrl = await VideoStorageService.getVideoUrl(videoAny.tos_key as string, expireTime);
-    } else if (videoAny.result_url) {
+      console.log(`[Video URL] 使用 TOS 存储: ${videoRow.tos_key}`);
+      videoUrl = await VideoStorageService.getVideoUrl(videoRow.tos_key, expireTime);
+    } else if (videoRow.result_url) {
       // 兜底：使用临时 URL
-      console.log(`[Video URL] 使用临时 URL: ${(videoAny.result_url as string).substring(0, 50)}...`);
-      videoUrl = videoAny.result_url as string;
+      console.log(`[Video URL] 使用临时 URL: ${videoRow.result_url.substring(0, 50)}...`);
+      videoUrl = videoRow.result_url;
     } else {
       return NextResponse.json({ error: '视频 URL 不存在' }, { status: 404 });
     }
@@ -94,7 +108,7 @@ export async function GET(request: NextRequest) {
       success: true,
       url: videoUrl,
       expireTime,
-      source: videoAny.public_video_url ? 'public' : (videoAny.tos_key ? 'tos' : 'temp'),
+      source: videoRow.public_video_url ? 'public' : (videoRow.tos_key ? 'tos' : 'temp'),
     });
   } catch (error) {
     console.error('获取视频 URL 失败:', error);

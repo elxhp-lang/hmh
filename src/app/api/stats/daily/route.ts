@@ -3,6 +3,11 @@ import { getSupabaseClient } from '@/storage/database/supabase-client';
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+interface BillingDailyRow {
+  created_at?: string;
+  task_type?: string;
+  amount?: unknown;
+}
 
 /**
  * 每日消费统计 API
@@ -59,9 +64,9 @@ export async function GET(request: NextRequest) {
     // 按日期和类型统计
     const statsMap = new Map<string, { date: string; category: string; amount: number; tasks: number }>();
 
-    (data || []).forEach((item: any) => {
-      const date = (item.created_at as string)?.split('T')[0] || '';
-      const category = (item.task_type as string) || 'other';
+    ((data || []) as BillingDailyRow[]).forEach((item) => {
+      const date = item.created_at?.split('T')[0] || '';
+      const category = item.task_type || 'other';
       const key = `${date}_${category}`;
 
       if (!statsMap.has(key)) {

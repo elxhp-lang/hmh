@@ -19,11 +19,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { getTosClient, BUCKET_NAME } from '@/lib/tos-storage';
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+type TosAclSetter = (params: { bucket: string; key: string; acl: 'public-read' }) => Promise<unknown>;
 
 // 文件大小限制：500MB
 const MAX_FILE_SIZE = 500 * 1024 * 1024;
@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
 
     // 设置永久公开读取权限
     try {
-      await (client.putObjectAcl as any)({
+      await (client.putObjectAcl as TosAclSetter)({
         bucket: BUCKET_NAME,
         key,
         acl: 'public-read',

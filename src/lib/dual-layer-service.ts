@@ -12,7 +12,6 @@
 import { LLMClient, Config, KnowledgeClient } from 'coze-coding-dev-sdk';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { createVideoLearningService } from './video-learning-service';
-import { createAgentLearningService } from './agent-learning-service';
 import type { AbilityLevel } from './agent-ability-service';
 
 // ========== 类型定义 ==========
@@ -47,6 +46,21 @@ export interface TaskType {
   type: 'script_generation' | 'video_analysis' | 'prompt_optimization' | 'creative_suggestion';
   name: string;
   description: string;
+}
+
+interface AbilityProfileRow {
+  id?: string;
+  overall_score?: number;
+  level?: AbilityLevel;
+  score_completeness?: number;
+  score_accuracy?: number;
+  score_creativity?: number;
+  score_practicality?: number;
+  score_efficiency?: number;
+  total_observations?: number;
+  total_executions?: number;
+  user_selections?: number;
+  user_rejections?: number;
 }
 
 // ========== 核心服务 ==========
@@ -94,19 +108,20 @@ export class DualLayerService {
       };
     }
 
+    const row = data as AbilityProfileRow;
     return {
-      overall: Number((data as any).overall_score) || 0,
-      level: ((data as any).level as AbilityLevel) || 'novice',
+      overall: Number(row.overall_score) || 0,
+      level: row.level || 'novice',
       dimensions: {
-        completeness: Number((data as any).score_completeness) || 0,
-        accuracy: Number((data as any).score_accuracy) || 0,
-        creativity: Number((data as any).score_creativity) || 0,
-        practicality: Number((data as any).score_practicality) || 0,
-        efficiency: Number((data as any).score_efficiency) || 0,
+        completeness: Number(row.score_completeness) || 0,
+        accuracy: Number(row.score_accuracy) || 0,
+        creativity: Number(row.score_creativity) || 0,
+        practicality: Number(row.score_practicality) || 0,
+        efficiency: Number(row.score_efficiency) || 0,
       },
-      totalObservations: (data as any).total_observations || 0,
-      totalExecutions: (data as any).total_executions || 0,
-      userSelections: (data as any).user_selections || 0,
+      totalObservations: row.total_observations || 0,
+      totalExecutions: row.total_executions || 0,
+      userSelections: row.user_selections || 0,
     };
   }
 
@@ -576,7 +591,7 @@ ${learningSection}
         user_choice: choice,
       });
 
-    const p = currentProfile as any;
+    const p = (currentProfile || null) as AbilityProfileRow | null;
     
     // 更新能力档案
     const updateData = {
@@ -592,7 +607,7 @@ ${learningSection}
       await client
         .from('agent_ability_profiles')
         .update(updateData)
-        .eq('id', p.id);
+        .eq('id', p?.id);
     } else {
       await client
         .from('agent_ability_profiles')

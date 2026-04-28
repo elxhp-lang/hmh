@@ -9,7 +9,29 @@ const BUCKET_NAME = process.env.TOS_BUCKET_NAME || 'hmhv';
 const ENDPOINT = process.env.TOS_ENDPOINT || 'tos-cn-beijing.volces.com';
 
 // TOS 客户端构造函数
-const TosClient = (TOS as any).default || TOS.TosClient;
+interface TosModuleLike {
+  default?: new (options: {
+    accessKeyId: string;
+    accessKeySecret: string;
+    region: string;
+    endpoint: string;
+  }) => TOS.TosClient;
+  TosClient: new (options: {
+    accessKeyId: string;
+    accessKeySecret: string;
+    region: string;
+    endpoint: string;
+  }) => TOS.TosClient;
+}
+
+type PutObjectAclCall = (params: {
+  bucket: string;
+  key: string;
+  acl?: string;
+  headers?: Record<string, string>;
+}) => Promise<unknown>;
+
+const TosClient = ((TOS as unknown as TosModuleLike).default || (TOS as unknown as TosModuleLike).TosClient);
 
 // 延迟初始化 TOS 客户端
 let tosClient: TOS.TosClient | null = null;
@@ -271,7 +293,7 @@ export class VideoStorageService {
   static async setPublicRead(key: string): Promise<boolean> {
     try {
       const client = getTosClient();
-      await (client.putObjectAcl as any)({
+      await (client.putObjectAcl as unknown as PutObjectAclCall)({
         bucket: BUCKET_NAME,
         key: key,
         acl: 'public-read',
@@ -283,7 +305,7 @@ export class VideoStorageService {
       // 尝试使用 headers 方式
       try {
         const client = getTosClient();
-        await (client as any).putObjectAcl({
+        await (client.putObjectAcl as unknown as PutObjectAclCall)({
           bucket: BUCKET_NAME,
           key: key,
           headers: {
@@ -309,8 +331,7 @@ export class LearningLibraryStorage {
    */
   static async getPresignedUploadUrl(
     userId: string,
-    fileName: string,
-    contentType: string = 'video/mp4'
+    fileName: string
   ): Promise<{ uploadUrl: string; fileKey: string }> {
     // 生成文件 key：使用 users/{userId}/learning-videos/ 前缀（与确认API一致）
     const timestamp = Date.now();
@@ -348,7 +369,7 @@ export class LearningLibraryStorage {
   ): Promise<string> {
     const timestamp = Date.now();
     const ext = fileName.split('.').pop() || 'mp4';
-    const targetKey = `learning-library/${userId}/${timestamp}_${Math.random().toString(36).substring(7)}.${ext}`;
+    const targetKey = `users/${userId}/learning-videos/video_${timestamp}_${Math.random().toString(36).substring(7)}.${ext}`;
 
     console.log(`[TOS] 上传学习库视频: ${targetKey}`);
 
@@ -387,7 +408,7 @@ export class LearningLibraryStorage {
    * 列出用户的学习库视频
    */
   static async listUserLearningVideos(userId: string, maxKeys: number = 100): Promise<string[]> {
-    const prefix = `learning-library/${userId}/`;
+    const prefix = `users/${userId}/learning-videos/`;
 
     try {
       const client = getTosClient();

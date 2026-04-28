@@ -16,12 +16,10 @@ const ALLOWED_ORIGINS = [
   'https://*.coze.site',
   'https://*.coze.cn',
 ];
+const ALLOWED_METHODS_FOR_TOS = ['GET', 'PUT', 'POST', 'DELETE', 'HEAD'] as unknown as never[];
 
 // 标记是否已初始化（防止重复启动轮询服务）
 let initialized = false;
-
-// 轮询服务实例
-let pollerInstance: any = null;
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,7 +33,6 @@ export async function GET() {
     if (forceReinit) {
       console.log('[项目初始化] 开发环境，强制重新启动轮询服务');
       initialized = false;
-      pollerInstance = null;
     }
 
     const client = getTosClient();
@@ -47,7 +44,7 @@ export async function GET() {
         CORSRules: [
           {
             AllowedOrigins: ALLOWED_ORIGINS,
-            AllowedMethods: ['GET', 'PUT', 'POST', 'DELETE', 'HEAD'] as any,
+            AllowedMethods: ALLOWED_METHODS_FOR_TOS,
             AllowedHeaders: ['*'],
             ExposeHeaders: ['ETag', 'Content-Length', 'x-tos-request-id'],
             MaxAgeSeconds: 3600,

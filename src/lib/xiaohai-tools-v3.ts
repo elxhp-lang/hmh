@@ -10,11 +10,10 @@
  */
 
 import { VideoLearningService } from './video-learning-service';
-import { ScriptGeneratorService, Script } from './script-generator-service';
-import { SeedanceClient } from './seedance-client';
-import { XiaohaiMemoryService } from './xiaohai-memory-service';
-import { XiaohaiEvolutionService } from './xiaohai-evolution-service';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { ScriptGeneratorService, type RegenerateScriptRequest } from './script-generator-service';
+import { SeedanceClient, type CreateTaskRequest } from './seedance-client';
+import { XiaohaiMemoryService, type MemoryType } from './xiaohai-memory-service';
+import { XiaohaiEvolutionService, type RecordType } from './xiaohai-evolution-service';
 
 // ========== 类型定义 ==========
 
@@ -473,7 +472,7 @@ export class ToolExecutorV3 {
   /**
    * 执行工具
    */
-  async execute(toolName: string, params: Record<string, any>): Promise<any> {
+  async execute(toolName: string, params: Record<string, unknown>): Promise<unknown> {
     console.log(`🔧 [V3工具执行] ${toolName}`, params);
 
     try {
@@ -482,32 +481,53 @@ export class ToolExecutorV3 {
         case 'analyze_video':
           return await this.analyzeVideo(params as { video_url: string; video_name?: string });
         case 'generate_script':
-          return await this.generateScript(params as any);
+          return await this.generateScript(params as {
+            product_name: string;
+            style?: string;
+            duration?: number;
+            reference?: string;
+          });
         case 'regenerate_script':
-          return await this.regenerateScript(params as any);
+          return await this.regenerateScript(params as {
+            product_name: string;
+            feedback: string;
+            style?: string;
+            duration?: number;
+          });
         case 'generate_video':
-          return await this.generateVideo(params as any);
+          return await this.generateVideo(params as {
+            script: string;
+            first_frame_url?: string;
+            duration?: number;
+          });
         case 'get_product_reference':
-          return await this.getProductReference(params as any);
+          return await this.getProductReference(params as { product_name: string });
         case 'get_user_preferences':
           return await this.getUserPreferences();
         case 'save_user_preferences':
-          return await this.saveUserPreferences(params as any);
+          return await this.saveUserPreferences(params as { style?: string; duration?: number });
         // 新增记忆与进化工具
         case 'saveUserMemory':
-          return await this.saveUserMemory(params as any);
+          return await this.saveUserMemory(params as { content: string; memory_type: string; keywords: string[] });
         case 'getUserMemories':
-          return await this.getUserMemories(params as any);
+          return await this.getUserMemories(params as { query: string; memory_type?: string; limit?: number });
         case 'searchUserMemories':
-          return await this.searchUserMemories(params as any);
+          return await this.searchUserMemories(params as { keyword: string; memory_type?: string });
         case 'recordLearning':
-          return await this.recordLearning(params as any);
+          return await this.recordLearning(params as {
+            record_type: string;
+            content: string;
+            original_content?: string;
+            feedback?: string;
+            score?: number;
+            tags?: string[];
+          });
         case 'getLearningRecords':
-          return await this.getLearningRecords(params as any);
+          return await this.getLearningRecords(params as { query?: string; record_type?: string; limit?: number });
         case 'analyzeFile':
-          return await this.analyzeFile(params as any);
+          return await this.analyzeFile(params as { file_url: string; file_type: string; purpose?: string });
         case 'webSearch':
-          return await this.webSearch(params as any);
+          return await this.webSearch(params as { query: string; count?: number });
         default:
           return { success: false, error: `未知工具：${toolName}` };
       }
@@ -566,12 +586,13 @@ export class ToolExecutorV3 {
     duration?: number;
   }) {
     const service = new ScriptGeneratorService(this.headers ? new Headers() : undefined);
-    const scripts = await service.regenerate({
+    const regeneratePayload: RegenerateScriptRequest = {
       productName: params.product_name,
       feedback: params.feedback,
-      style: params.style || '现代简约',
-      duration: params.duration || 8
-    } as any);
+      adjustment: params.style || '保持原风格',
+      previousScripts: [],
+    };
+    const scripts = await service.regenerate(regeneratePayload);
     return {
       success: true,
       data: scripts,
@@ -588,11 +609,12 @@ export class ToolExecutorV3 {
     duration?: number;
   }) {
     const client = new SeedanceClient();
-    const task = await client.createTask({
+    const taskPayload: CreateTaskRequest = {
       model: 'doubao-seedance-2-0-260128',
       content: [{ type: 'text', text: params.script }],
       duration: params.duration
-    } as any);
+    };
+    const task = await client.createTask(taskPayload);
     return {
       success: true,
       data: {
@@ -636,7 +658,8 @@ export class ToolExecutorV3 {
   /**
    * 保存用户偏好
    */
-  private async saveUserPreferences(params: { style?: string; duration?: number }) {
+  private async saveUserPreferences(_params: { style?: string; duration?: number }) {
+    void _params;
     // TODO: 实现用户偏好保存
     return {
       success: true,
@@ -662,7 +685,7 @@ export class ToolExecutorV3 {
     const result = await service.saveMemory(
       this.userId,
       params.content,
-      params.memory_type as any,
+      params.memory_type as MemoryType,
       params.keywords
     );
 
@@ -731,7 +754,7 @@ export class ToolExecutorV3 {
     const service = new XiaohaiEvolutionService();
     const result = await service.recordLearning(
       this.userId,
-      params.record_type as any,
+      params.record_type as RecordType,
       params.content,
       {
         originalContent: params.original_content,
@@ -756,7 +779,7 @@ export class ToolExecutorV3 {
     const result = await service.getLearningRecords(
       this.userId,
       params.query,
-      params.record_type as any,
+      params.record_type as RecordType,
       params.limit || 10
     );
 
@@ -834,7 +857,7 @@ export class ToolExecutorV3 {
 /**
  * 获取所有工具定义（用于 LLM 的 function calling）
  */
-export function getToolsForLLM(): any[] {
+export function getToolsForLLM(): unknown[] {
   return [
     // 原有工具
     {

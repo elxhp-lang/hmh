@@ -119,6 +119,11 @@ interface OrderCondition {
   nulls?: 'first' | 'last';
 }
 
+interface SelectOptions {
+  count?: 'exact' | 'planned' | 'estimated';
+  head?: boolean;
+}
+
 class QueryBuilderImpl<T extends Record<string, unknown> = Record<string, unknown>> implements QueryBuilder<T> {
   private tableName: string;
   private queryType: 'select' | 'insert' | 'update' | 'upsert' | 'delete' = 'select';
@@ -131,12 +136,13 @@ class QueryBuilderImpl<T extends Record<string, unknown> = Record<string, unknow
   private offsetCount?: number;
   private rangeFrom?: number;
   private rangeTo?: number;
+  private selectOptions: SelectOptions = {};
 
   constructor(table: string) {
     this.tableName = table;
   }
 
-  select(columns?: string, _options?: { count?: 'exact' | 'planned' | 'estimated'; head?: boolean }): QueryBuilder<T> {
+  select(columns?: string, options?: { count?: 'exact' | 'planned' | 'estimated'; head?: boolean }): QueryBuilder<T> {
     // 仅当未设置操作类型时才设为 select（修复：insert/update/upsert/delete 后调用 select 不应覆盖）
     if (!['insert', 'update', 'upsert', 'delete'].includes(this.queryType)) {
       this.queryType = 'select';
@@ -146,6 +152,7 @@ class QueryBuilderImpl<T extends Record<string, unknown> = Record<string, unknow
     } else {
       this.columns = [];
     }
+    this.selectOptions = options || {};
     return this;
   }
 
@@ -331,7 +338,14 @@ class QueryBuilderImpl<T extends Record<string, unknown> = Record<string, unknow
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
   ): Promise<TResult1 | TResult2> {
     return this.execute().then(
-      (results) => ({ data: results as T[], error: null, count: results.length }),
+      async (results) => {
+        const count = this.selectOptions.count === 'exact' ? await this.executeCount() : results.length;
+        return {
+          data: this.selectOptions.head ? [] : (results as T[]),
+          error: null,
+          count,
+        };
+      },
       (error) => ({ data: null, error: error as Error, count: 0 })
     ).then(onfulfilled, onrejected);
   }
@@ -357,7 +371,7 @@ class QueryBuilderImpl<T extends Record<string, unknown> = Record<string, unknow
 
   private buildWhereClause(additionalParamsOffset: number = 0): { sql: string; params: unknown[] } {
     const params: unknown[] = [];
-    let paramIndex = 1 + additionalParamsOffset;
+    let paramCursor = 1 + additionalParamsOffset;
 
     if (this.whereConditions.length === 0) {
       return { sql: '', params: [] };
@@ -366,11 +380,11 @@ class QueryBuilderImpl<T extends Record<string, unknown> = Record<string, unknow
     const whereParts: string[] = [];
     for (const cond of this.whereConditions) {
       if (cond.operator === 'IN' && Array.isArray(cond.value)) {
-        const placeholders = cond.value.map((_, i) => `$${paramIndex + whereParts.length + i}`).join(', ');
+        const placeholders = cond.value.map(() => `$${paramCursor++}`).join(', ');
         whereParts.push(`"${cond.column}" IN (${placeholders})`);
         params.push(...cond.value);
       } else if (cond.operator === '@>') {
-        whereParts.push(`"${cond.column}" @> $${paramIndex + whereParts.length}::jsonb`);
+        whereParts.push(`"${cond.column}" @> $${paramCursor++}::jsonb`);
         if (typeof cond.value === 'string') {
           params.push(cond.value);
         } else {
@@ -381,7 +395,7 @@ class QueryBuilderImpl<T extends Record<string, unknown> = Record<string, unknow
       } else if (cond.operator === 'IS' && cond.value === 'NOT NULL') {
         whereParts.push(`"${cond.column}" IS NOT NULL`);
       } else {
-        whereParts.push(`"${cond.column}" ${cond.operator} $${paramIndex + whereParts.length}`);
+        whereParts.push(`"${cond.column}" ${cond.operator} $${paramCursor++}`);
         params.push(cond.value);
       }
     }
@@ -389,11 +403,111 @@ class QueryBuilderImpl<T extends Record<string, unknown> = Record<string, unknow
     return { sql: ` WHERE ${whereParts.join(' AND ')}`, params };
   }
 
+  private parseOrCondition(
+    filters: string,
+    startingIndex: number
+  ): { sql: string; params: unknown[]; consumed: number } {
+    const clauses = filters
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const params: unknown[] = [];
+    const parts: string[] = [];
+    let consumed = 0;
+
+    const opMap: Record<string, string> = {
+      eq: '=',
+      neq: '!=',
+      gt: '>',
+      gte: '>=',
+      lt: '<',
+      lte: '<=',
+      like: 'LIKE',
+      ilike: 'ILIKE',
+      cs: '@>',
+      is: 'IS',
+      in: 'IN',
+    };
+
+    for (const clause of clauses) {
+      const firstDot = clause.indexOf('.');
+      const secondDot = clause.indexOf('.', firstDot + 1);
+      if (firstDot <= 0 || secondDot <= firstDot) continue;
+
+      const column = clause.slice(0, firstDot);
+      const opRaw = clause.slice(firstDot + 1, secondDot).toLowerCase();
+      const valueRaw = clause.slice(secondDot + 1);
+      const operator = opMap[opRaw];
+      if (!operator) continue;
+
+      if (opRaw === 'is' && valueRaw.toLowerCase() === 'null') {
+        parts.push(`"${column}" IS NULL`);
+        continue;
+      }
+
+      if (opRaw === 'in') {
+        const values = valueRaw
+          .replace(/^\(/, '')
+          .replace(/\)$/, '')
+          .split(',')
+          .map((v) => v.trim())
+          .filter(Boolean);
+        if (values.length === 0) continue;
+        const placeholders = values.map(() => `$${startingIndex + consumed++}`).join(', ');
+        parts.push(`"${column}" IN (${placeholders})`);
+        params.push(...values);
+        continue;
+      }
+
+      if (opRaw === 'cs') {
+        parts.push(`"${column}" @> $${startingIndex + consumed++}::jsonb`);
+        params.push(valueRaw.startsWith('{') || valueRaw.startsWith('[') ? valueRaw : JSON.stringify(valueRaw));
+        continue;
+      }
+
+      parts.push(`"${column}" ${operator} $${startingIndex + consumed++}`);
+      params.push(valueRaw);
+    }
+
+    if (parts.length === 0) {
+      return { sql: '', params: [], consumed: 0 };
+    }
+
+    return { sql: `(${parts.join(' OR ')})`, params, consumed };
+  }
+
+  private buildOrClause(startingIndex: number, hasWhere: boolean): { sql: string; params: unknown[] } {
+    if (this.orConditions.length === 0) return { sql: '', params: [] };
+    const sqlParts: string[] = [];
+    const params: unknown[] = [];
+    let cursor = startingIndex;
+
+    for (const filters of this.orConditions) {
+      const parsed = this.parseOrCondition(filters, cursor);
+      if (!parsed.sql) continue;
+      sqlParts.push(parsed.sql);
+      params.push(...parsed.params);
+      cursor += parsed.params.length;
+    }
+
+    if (sqlParts.length === 0) return { sql: '', params: [] };
+    return { sql: `${hasWhere ? ' AND ' : ' WHERE '}${sqlParts.join(' AND ')}`, params };
+  }
+
+  private formatSelectColumn(column: string): string {
+    if (column === '*') return '*';
+    if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(column)) {
+      return `"${column}"`;
+    }
+    // Keep advanced supabase-like expressions as raw SQL.
+    return column;
+  }
+
   private async executeSelect(pool: Pool): Promise<T[]> {
     let sql = `SELECT `;
     
     if (this.columns.length > 0) {
-      sql += this.columns.map(c => c === '*' ? '*' : `"${c}"`).join(', ');
+      sql += this.columns.map((c) => this.formatSelectColumn(c)).join(', ');
     } else {
       sql += '*';
     }
@@ -402,6 +516,8 @@ class QueryBuilderImpl<T extends Record<string, unknown> = Record<string, unknow
 
     const whereResult = this.buildWhereClause(0);
     sql += whereResult.sql;
+    const orResult = this.buildOrClause(whereResult.params.length + 1, Boolean(whereResult.sql));
+    sql += orResult.sql;
 
     if (this.orderConditions.length > 0) {
       const orderParts = this.orderConditions.map(o => {
@@ -427,8 +543,19 @@ class QueryBuilderImpl<T extends Record<string, unknown> = Record<string, unknow
     }
 
     // 注意：SELECT 语句不需要 RETURNING 子句
-    const result: QueryResult<T> = await pool.query(sql, whereResult.params);
+    const result: QueryResult<T> = await pool.query(sql, [...whereResult.params, ...orResult.params]);
     return result.rows;
+  }
+
+  private async executeCount(): Promise<number> {
+    const pool = getPool();
+    let sql = `SELECT COUNT(*)::int AS total FROM "${this.tableName}"`;
+    const whereResult = this.buildWhereClause(0);
+    sql += whereResult.sql;
+    const orResult = this.buildOrClause(whereResult.params.length + 1, Boolean(whereResult.sql));
+    sql += orResult.sql;
+    const result = await pool.query<{ total: number }>(sql, [...whereResult.params, ...orResult.params]);
+    return result.rows[0]?.total || 0;
   }
 
   private async executeInsert(pool: Pool): Promise<T[]> {

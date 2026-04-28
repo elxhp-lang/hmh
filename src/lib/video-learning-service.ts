@@ -60,6 +60,18 @@ export interface VideoAnalysisResult {
   videoEmbedding?: number[];
 }
 
+interface LearningSummaryRow {
+  video_style?: string;
+  video_theme?: string;
+}
+
+interface LearningReferenceRow {
+  video_name?: string;
+  video_style?: string;
+  summary?: string;
+  similarity?: number;
+}
+
 export class VideoLearningService {
   private embeddingClient: EmbeddingClient;
   private knowledgeClient: KnowledgeClient;
@@ -95,7 +107,6 @@ export class VideoLearningService {
     const isTosKey = !videoUrlOrKey.startsWith('http');
     let videoUrl = videoUrlOrKey;
     let localFilePath: string | null = null;
-    let usePublicUrl = false;
     
     // 如果是 tos_key，优先尝试使用公开 URL
     if (isTosKey) {
@@ -122,7 +133,6 @@ export class VideoLearningService {
       try {
         localFilePath = await this.downloadTosFile(videoUrlOrKey, videoName);
         videoUrl = localFilePath;
-        usePublicUrl = false;
         console.log(`[视频学习] 下载完成，本地路径: ${localFilePath}`);
       } catch (error) {
         console.error(`[视频学习] TOS 文件下载失败:`, error);
@@ -130,7 +140,6 @@ export class VideoLearningService {
       }
     } else {
       // 已经是 URL，直接使用
-      usePublicUrl = true;
       console.log(`[视频学习] 使用外部 URL 进行分析: ${videoUrl}`);
     }
     
@@ -162,7 +171,8 @@ export class VideoLearningService {
   /**
    * 下载 TOS 文件到临时目录
    */
-  private async downloadTosFile(tosKey: string, videoName: string): Promise<string> {
+  private async downloadTosFile(tosKey: string, _videoName: string): Promise<string> {
+    void _videoName;
     console.log(`[视频学习] 正在下载 TOS 文件: ${tosKey}`);
     
     // 生成签名 URL
@@ -475,7 +485,7 @@ export class VideoLearningService {
     const styleDistribution: Record<string, number> = {};
     const recentTopics: string[] = [];
 
-    for (const learning of learnings as any[]) {
+    for (const learning of learnings as LearningSummaryRow[]) {
       if (learning.video_style) {
         const key = learning.video_style as string;
         styleDistribution[key] = (styleDistribution[key] || 0) + 1;
@@ -528,7 +538,7 @@ export class VideoLearningService {
       return [];
     }
 
-    return (learnings as any[]).map((learning, index) => ({
+    return (learnings as LearningReferenceRow[]).map((learning, index) => ({
       videoName: (learning.video_name as string) || '未知',
       style: (learning.video_style as string) || '未知',
       summary: (learning.summary as string) || '',
@@ -565,7 +575,7 @@ export class VideoLearningService {
         return this.getRelevantReferences(userId, query, limit);
       }
 
-      return (learnings as any[]).map((learning: any) => ({
+      return (learnings as LearningReferenceRow[]).map((learning) => ({
         videoName: (learning.video_name as string) || '未知',
         style: (learning.video_style as string) || '未知',
         summary: (learning.summary as string) || '',

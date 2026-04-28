@@ -27,6 +27,10 @@ export interface MemoryItem {
   updated_at: string | null;
 }
 
+interface MemoryIdRow {
+  id?: string;
+}
+
 // 记忆创建参数
 export interface CreateMemoryParams {
   agent_type: AgentType;
@@ -169,7 +173,7 @@ class AgentMemoryService {
 
       // 更新访问计数
       if (data && data.length > 0) {
-        const memoryIds = data.map(m => (m as any).id as string);
+        const memoryIds = data.map((m) => (m as MemoryIdRow).id as string);
         await this.updateAccessCount(memoryIds);
       }
 
@@ -207,7 +211,7 @@ class AgentMemoryService {
 
       // 更新访问计数
       if (data) {
-        await this.updateAccessCount([(data as any).id as string]);
+        await this.updateAccessCount([(data as MemoryIdRow).id as string]);
       }
 
       return data as unknown as MemoryItem | null;
@@ -393,8 +397,9 @@ class AgentMemoryService {
   async getContextForLLM(
     agentType: AgentType,
     userId: string,
-    currentMessage?: string
+    _currentMessage?: string
   ): Promise<string> {
+    void _currentMessage;
     try {
       // 获取用户偏好和重要记忆
       const memories = await this.queryMemories({

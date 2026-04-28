@@ -13,6 +13,45 @@ import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { SeedanceClient } from './seedance-client';
 import { VideoStorageService } from './tos-storage';
 import { TaskStateService } from './server/task-state-service';
+interface PendingVideoRow {
+  id: string;
+  task_id?: string;
+  seedance_task_id?: string;
+  user_id: string;
+  video_name?: string;
+}
+
+interface SeedanceTaskLike {
+  status?: string;
+  content?: {
+    video_url?: string;
+    video_name?: string;
+  };
+  extra_info?: {
+    prompt?: string;
+  };
+  error?: {
+    message?: string;
+  };
+}
+
+interface NotificationInsertRow {
+  id?: string;
+}
+
+function isPendingVideoRow(value: unknown): value is PendingVideoRow {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.id === 'string' && typeof row.user_id === 'string';
+}
+
+function normalizeVideoStatus(status?: string): 'pending' | 'processing' | 'completed' | 'failed' {
+  const normalized = (status || '').toLowerCase();
+  if (['succeeded', 'completed', 'success'].includes(normalized)) return 'completed';
+  if (['failed', 'error', 'cancelled'].includes(normalized)) return 'failed';
+  if (['running', 'processing', 'queued', 'in_progress'].includes(normalized)) return 'processing';
+  return 'pending';
+}
 
 export class VideoGenerationPoller {
   // 延迟初始化，避免构建时检查环境变量
@@ -54,8 +93,36 @@ export class VideoGenerationPoller {
       .order('created_at', { ascending: false })
       .limit(1);
     const first = Array.isArray(data) ? data[0] : null;
-    if (!first?.id) return null;
-    return { id: String(first.id), sessionId: first.session_id ? String(first.session_id) : null };
+    if (first?.id) return { id: String(first.id), sessionId: first.session_id ? String(first.session_id) : null };
+
+    // fallback: reverse lookup from task_events.external_task_ids when input_data.video_id missing
+    const { data: videoData } = await this.supabase
+      .from('videos')
+      .select('task_id,seedance_task_id')
+      .eq('id', videoId)
+      .single();
+    const seedanceTaskId =
+      (videoData && typeof (videoData as Record<string, unknown>).task_id === 'string'
+        ? ((videoData as Record<string, unknown>).task_id as string)
+        : '') ||
+      (videoData && typeof (videoData as Record<string, unknown>).seedance_task_id === 'string'
+        ? ((videoData as Record<string, unknown>).seedance_task_id as string)
+        : '');
+    if (!seedanceTaskId) return null;
+
+    const { data: eventRow } = await this.supabase
+      .from('task_events')
+      .select('task_id,session_id')
+      .eq('user_id', userId)
+      .contains('event_data', { external_task_ids: { seedance_task_id: seedanceTaskId } })
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+    if (!eventRow?.task_id) return null;
+    return {
+      id: String(eventRow.task_id),
+      sessionId: eventRow.session_id ? String(eventRow.session_id) : null,
+    };
   }
 
   /**
@@ -114,6 +181,7 @@ export class VideoGenerationPoller {
 
       // 2. 逐个处理
       for (const video of videos) {
+        if (!isPendingVideoRow(video)) continue;
         await this.processVideo(video);
       }
 
@@ -125,7 +193,7 @@ export class VideoGenerationPoller {
   /**
    * 处理单个视频
    */
-  private async processVideo(video: any) {
+  private async processVideo(video: PendingVideoRow) {
     const videoId = video.id;
     const seedanceTaskId = video.task_id || video.seedance_task_id;  // 兼容两种字段名
     const userId = video.user_id;
@@ -158,23 +226,24 @@ export class VideoGenerationPoller {
       console.log(`[VideoPoller] Seedance任务状态: ${taskStatus.status}`);
 
       // 2. 根据状态处理
-      if (taskStatus.status === 'succeeded') {
+      const normalizedStatus = normalizeVideoStatus(taskStatus.status);
+      if (normalizedStatus === 'completed') {
         await this.handleSuccess(videoId, userId, taskStatus);
-      } else if (taskStatus.status === 'failed') {
+      } else if (normalizedStatus === 'failed') {
         await this.handleFailure(videoId, taskStatus, video);
-      } else if (taskStatus.status === 'running' || taskStatus.status === 'queued') {
+      } else if (normalizedStatus === 'processing') {
         // 更新为 processing 状态
         await this.updateStatus(videoId, 'processing');
         const workerTask = await this.findWorkerTask(videoId, userId);
         if (workerTask) {
           await this.taskStateService.transitionTask(workerTask.id, 'running', {
-            progress: taskStatus.status === 'running' ? 55 : 20,
-            output_data: { video_id: videoId, seedance_status: taskStatus.status },
+            progress: (taskStatus.status || '').toLowerCase() === 'running' ? 55 : 20,
+            output_data: { video_id: videoId, seedance_status: normalizedStatus },
           });
           if (workerTask.sessionId) {
             await this.taskStateService.appendEvent(workerTask.id, userId, workerTask.sessionId, 'video_generate_polling', {
               video_id: videoId,
-              seedance_status: taskStatus.status,
+              seedance_status: normalizedStatus,
             });
           }
         }
@@ -189,7 +258,7 @@ export class VideoGenerationPoller {
   /**
    * 处理成功状态
    */
-  private async handleSuccess(videoId: string, userId: string, taskStatus: any) {
+  private async handleSuccess(videoId: string, userId: string, taskStatus: SeedanceTaskLike) {
     console.log(`[VideoPoller] 视频生成成功: ${videoId}`);
 
     try {
@@ -265,7 +334,7 @@ export class VideoGenerationPoller {
   /**
    * 处理失败状态
    */
-  private async handleFailure(videoId: string, taskStatus: any, video?: any) {
+  private async handleFailure(videoId: string, taskStatus: SeedanceTaskLike, video?: PendingVideoRow) {
     console.log(`[VideoPoller] 视频生成失败: ${videoId}`);
 
     const errorReason = taskStatus.error?.message || '未知错误';
@@ -362,7 +431,7 @@ export class VideoGenerationPoller {
       if (error) {
         console.error('[VideoPoller] 发送用户通知失败:', error);
       } else {
-        console.log(`[VideoPoller] 发送用户通知成功: ${(data as any)?.id}`);
+        console.log(`[VideoPoller] 发送用户通知成功: ${(data as NotificationInsertRow | null)?.id}`);
       }
 
     } catch (error) {
