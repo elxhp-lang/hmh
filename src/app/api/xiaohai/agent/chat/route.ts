@@ -176,6 +176,13 @@ const LONG_RUNNING_TOOLS = new Set([
   'generate_script',
   'batch_generate',
 ]);
+const SUBMISSION_STYLE_TOOLS = new Set([
+  'submit_video_task',
+  'batch_generate',
+]);
+const SYNC_RESULT_TOOLS = new Set([
+  'generate_first_frame',
+]);
 const TOOL_REQUIRED_FIELDS: Record<string, string[]> = {
   submit_video_task: ['prompt'],
   generate_script: ['product_name'],
@@ -232,6 +239,12 @@ function validateToolCall(toolName: string, params: Record<string, any>): string
 
 function isLongRunningTool(toolName: string): boolean {
   return LONG_RUNNING_TOOLS.has(toolName);
+}
+
+function getLongToolMode(toolName: string): 'submission' | 'sync_result' | 'generic' {
+  if (SUBMISSION_STYLE_TOOLS.has(toolName)) return 'submission';
+  if (SYNC_RESULT_TOOLS.has(toolName)) return 'sync_result';
+  return 'generic';
 }
 
 function extractMemoryCandidate(userMessageContent: string): MemoryCandidate | null {
@@ -324,6 +337,41 @@ function buildToolResultCardPart(
       data: result.data ?? null,
     },
   };
+}
+
+function extractToolExternalIds(
+  toolName: string,
+  rawData: Record<string, any>
+): {
+  canonicalTaskId: string | null;
+  externalIds: Record<string, string>;
+} {
+  const externalIds: Record<string, string> = {};
+  const pick = (field: string) => {
+    const value = rawData[field];
+    if (typeof value === 'string' && value.trim()) externalIds[field] = value.trim();
+  };
+
+  pick('task_id');
+  pick('seedance_task_id');
+  pick('video_id');
+  pick('image_id');
+  pick('worker_task_id');
+
+  if (toolName === 'batch_generate' && Array.isArray(rawData.results)) {
+    const batchTaskIds = rawData.results
+      .map((item: any) => (typeof item?.taskId === 'string' ? item.taskId.trim() : ''))
+      .filter(Boolean);
+    if (batchTaskIds.length > 0) externalIds.batch_task_ids = batchTaskIds.join(',');
+  }
+
+  const canonicalTaskId =
+    externalIds.seedance_task_id ||
+    externalIds.task_id ||
+    externalIds.image_id ||
+    null;
+
+  return { canonicalTaskId, externalIds };
 }
 
 function buildStructuredCardPart(parsed: any): { type: 'card'; cardType: string; data: Record<string, unknown> } | null {
@@ -751,6 +799,7 @@ export async function POST(request: NextRequest) {
                 }
 
                 if (isLongRunningTool(toolName) && workerTaskId && userId && session?.id) {
+                  const longToolMode = getLongToolMode(toolName);
                   let runtimeTaskId = workerTaskId;
                   // 图片生成任务桥接到独立 worker task，确保任务栏可单独显示与追踪
                   if (toolName === 'generate_first_frame') {
@@ -786,10 +835,8 @@ export async function POST(request: NextRequest) {
                       const rawData = (normalizedResult.data && typeof normalizedResult.data === 'object')
                         ? (normalizedResult.data as Record<string, any>)
                         : {};
-                      const canonicalTaskId =
-                        (typeof rawData.seedance_task_id === 'string' && rawData.seedance_task_id) ||
-                        (typeof rawData.task_id === 'string' && rawData.task_id) ||
-                        runtimeTaskId;
+                      const { canonicalTaskId: externalCanonicalId, externalIds } = extractToolExternalIds(toolName, rawData);
+                      const canonicalTaskId = externalCanonicalId || runtimeTaskId;
                       // 对 Agent 统一暴露单一任务 ID（优先工具原生 ID）
                       normalizedResult.data = {
                         ...rawData,
@@ -797,21 +844,48 @@ export async function POST(request: NextRequest) {
                         query_id: canonicalTaskId,
                         worker_task_id: runtimeTaskId,
                       };
+                      const succeeded = !!normalizedResult?.success;
+                      if (longToolMode === 'submission' && succeeded) {
+                        await taskStateService.appendTaskItem({
+                          taskId: runtimeTaskId,
+                          userId,
+                          sessionId: session.id,
+                          status: 'running',
+                          inputData: { tool: toolName, params: toolParams },
+                          outputData: { result: normalizedResult.data ?? null },
+                        });
+                        await taskStateService.appendEvent(runtimeTaskId, userId, session.id, 'task_item_submitted', {
+                          tool: toolName,
+                          result: normalizedResult.data ?? null,
+                          external_task_ids: externalIds,
+                          canonical_task_id: canonicalTaskId,
+                        });
+                        await taskStateService.transitionTask(runtimeTaskId, 'running', {
+                          progress: 35,
+                          output_data: {
+                            submit_result: normalizedResult.data ?? null,
+                            submission_tool: toolName,
+                          },
+                        });
+                      } else {
                       await taskStateService.appendTaskItem({
                         taskId: runtimeTaskId,
                         userId,
                         sessionId: session.id,
-                        status: normalizedResult?.success ? 'succeeded' : 'failed',
+                        status: succeeded ? 'succeeded' : 'failed',
                         inputData: { tool: toolName, params: toolParams },
                         outputData: { result: normalizedResult.data ?? null },
-                        errorMessage: normalizedResult?.success ? null : (normalizedResult?.error || '工具执行失败'),
+                        errorMessage: succeeded ? null : (normalizedResult?.error || '工具执行失败'),
                       });
-                      await taskStateService.appendEvent(runtimeTaskId, userId, session.id, normalizedResult?.success ? 'task_item_succeeded' : 'task_item_failed', {
+                      await taskStateService.appendEvent(runtimeTaskId, userId, session.id, succeeded ? 'task_item_succeeded' : 'task_item_failed', {
                         tool: toolName,
                         result: normalizedResult.data ?? null,
-                        error: normalizedResult?.success ? null : (normalizedResult?.error || '工具执行失败'),
+                        external_task_ids: externalIds,
+                        canonical_task_id: canonicalTaskId,
+                        error: succeeded ? null : (normalizedResult?.error || '工具执行失败'),
                       });
                       await taskStateService.aggregateTaskFromItems(runtimeTaskId);
+                      }
                     } catch (toolError) {
                       await taskStateService.appendTaskItem({
                         taskId: runtimeTaskId,
@@ -836,8 +910,13 @@ export async function POST(request: NextRequest) {
                       query_id: runtimeTaskId,
                       worker_task_id: runtimeTaskId,
                       queued_tool: toolName,
+                      task_mode: longToolMode,
                     },
-                    message: '工具已转后台执行',
+                    message: longToolMode === 'submission'
+                      ? '任务已提交，等待外部执行完成'
+                      : longToolMode === 'sync_result'
+                      ? '工具已后台执行，结果将自动回放'
+                      : '工具已转后台执行',
                   };
                   sendEvent({ type: 'tool_result', tool: toolName, result: normalizeToolExecutionResult(asyncAck) });
                   emitPart(buildToolResultCardPart(toolName, asyncAck), 'tool_result');

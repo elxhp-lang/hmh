@@ -543,14 +543,34 @@ export class AgentToolsService {
    * 工具7：查询任务状态
    * 支持按 query_id/task_id（推荐，Worker Task ID）或 seedance_task_id/video_id 查询
    */
+  private async findWorkerTaskIdByExternalId(taskIdOrVideoId: string, currentUserId: string | null): Promise<string | null> {
+    const fields = ['seedance_task_id', 'task_id', 'image_id', 'video_id'];
+    for (const field of fields) {
+      let query = this.supabase
+        .from('task_events')
+        .select('task_id')
+        .contains('event_data', { external_task_ids: { [field]: taskIdOrVideoId } })
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (currentUserId) query = query.eq('user_id', currentUserId);
+      const { data } = await query.single();
+      if (data?.task_id) return String(data.task_id);
+    }
+    return null;
+  }
+
   async queryTaskStatus(taskIdOrVideoId: string): Promise<{
     success: boolean;
     data?: {
       query_id: string;
       task_id: string;
+      task_kind?: 'image' | 'video' | 'worker';
       worker_task_id?: string;
       video_id?: string;
       seedance_task_id?: string;
+      image_id?: string;
+      image_url?: string;
+      public_image_url?: string;
       status: string;
       progress?: number;
       video_url?: string;
@@ -569,8 +589,8 @@ export class AgentToolsService {
         workerQuery = workerQuery.eq('user_id', currentUserId);
       }
       const { data: workerTask } = await workerQuery.single();
-      if (workerTask) {
-        const workerData = workerTask as any;
+      const resolveWorkerResult = async (workerTaskRow: any, fallbackTaskId: string) => {
+        const workerData = workerTaskRow as any;
         const outputData = (workerData.output_data || {}) as Record<string, any>;
         const submitResult = (outputData.submit_result || {}) as Record<string, any>;
         const canonicalTaskId =
@@ -578,30 +598,117 @@ export class AgentToolsService {
           (typeof submitResult.task_id === 'string' && submitResult.task_id) ||
           (typeof outputData.seedance_task_id === 'string' && outputData.seedance_task_id) ||
           (typeof outputData.task_id === 'string' && outputData.task_id) ||
-          String(workerData.id);
-        const workerVideoUrl =
+          fallbackTaskId;
+
+        let workerVideoUrl =
           (typeof submitResult.public_video_url === 'string' && submitResult.public_video_url) ||
           (typeof submitResult.video_url === 'string' && submitResult.video_url) ||
           undefined;
+        let workerImageUrl =
+          (typeof submitResult.public_image_url === 'string' && submitResult.public_image_url) ||
+          (typeof submitResult.image_url === 'string' && submitResult.image_url) ||
+          undefined;
+        let workerImageId =
+          (typeof submitResult.image_id === 'string' && submitResult.image_id) ||
+          (typeof outputData.image_id === 'string' && outputData.image_id) ||
+          undefined;
+
+        // output_data 会被聚合结果覆盖，补查最近的成功子任务结果作为真实输出来源
+        if (!workerVideoUrl || !workerImageUrl || !workerImageId) {
+          const { data: latestItems } = await this.supabase
+            .from('worker_task_items')
+            .select('output_data,status,item_index')
+            .eq('task_id', String(workerData.id))
+            .in('status', ['succeeded', 'partial_succeeded'])
+            .order('item_index', { ascending: false })
+            .limit(8);
+          for (const item of latestItems || []) {
+            const itemOutput = (item as any)?.output_data;
+            if (!itemOutput || typeof itemOutput !== 'object') continue;
+            const result = (itemOutput.result && typeof itemOutput.result === 'object')
+              ? itemOutput.result
+              : itemOutput;
+            if (!workerVideoUrl && typeof result.public_video_url === 'string' && result.public_video_url) {
+              workerVideoUrl = result.public_video_url;
+            } else if (!workerVideoUrl && typeof result.video_url === 'string' && result.video_url) {
+              workerVideoUrl = result.video_url;
+            }
+            if (!workerImageUrl && typeof result.public_image_url === 'string' && result.public_image_url) {
+              workerImageUrl = result.public_image_url;
+            } else if (!workerImageUrl && typeof result.image_url === 'string' && result.image_url) {
+              workerImageUrl = result.image_url;
+            }
+            if (!workerImageId && typeof result.image_id === 'string' && result.image_id) {
+              workerImageId = result.image_id;
+            }
+          }
+        }
+
         return {
-          success: true,
+          success: true as const,
           data: {
             query_id: canonicalTaskId,
             task_id: canonicalTaskId,
+            task_kind: workerImageUrl || workerImageId ? 'image' : (workerVideoUrl ? 'video' : 'worker'),
             worker_task_id: String(workerData.id),
             seedance_task_id:
               (typeof submitResult.seedance_task_id === 'string' && submitResult.seedance_task_id) ||
               (typeof outputData.seedance_task_id === 'string' && outputData.seedance_task_id) ||
               undefined,
+            image_id: workerImageId,
+            image_url: workerImageUrl,
+            public_image_url: workerImageUrl,
             status: String(workerData.status || 'running'),
             progress: Number(workerData.progress || 0),
             video_url: workerVideoUrl,
             error: workerData.error_message || undefined,
           },
         };
+      };
+
+      if (workerTask) {
+        return await resolveWorkerResult(workerTask, String((workerTask as any).id || taskIdOrVideoId));
       }
 
-      // 先查本地数据库 - 优先用 task_id（Seedance ID）查
+      // 1) 再尝试用工具外部 ID 反查 worker task（seedance_task_id / image_id 等）
+      const workerTaskIdByExternal = await this.findWorkerTaskIdByExternalId(taskIdOrVideoId, currentUserId);
+      if (workerTaskIdByExternal) {
+        let workerByExternalQuery = this.supabase
+          .from('worker_tasks')
+          .select('id,status,progress,error_message,output_data,session_id,created_at')
+          .eq('id', workerTaskIdByExternal);
+        if (currentUserId) {
+          workerByExternalQuery = workerByExternalQuery.eq('user_id', currentUserId);
+        }
+        const { data: workerByExternal } = await workerByExternalQuery.single();
+        if (workerByExternal) {
+          return await resolveWorkerResult(workerByExternal, taskIdOrVideoId);
+        }
+      }
+
+      // 2) 图片任务兜底：若传入 image_id，直接查询上传文件记录
+      const { data: imageFile } = await this.supabase
+        .from('uploaded_files')
+        .select('file_id,file_url,created_by,created_at')
+        .eq('file_id', taskIdOrVideoId)
+        .single();
+      if (imageFile) {
+        return {
+          success: true,
+          data: {
+            query_id: taskIdOrVideoId,
+            task_id: taskIdOrVideoId,
+            task_kind: 'image',
+            image_id: String((imageFile as any).file_id),
+            image_url: String((imageFile as any).file_url || ''),
+            public_image_url: String((imageFile as any).file_url || ''),
+            status: 'succeeded',
+            progress: 100,
+          },
+        };
+      }
+
+      // 3) 视频任务兜底：先查本地数据库 - 优先用 task_id（Seedance ID）查
       let { data, error } = await this.supabase
         .from('videos')
         .select('*')
@@ -658,6 +765,7 @@ export class AgentToolsService {
         data: {
           query_id: (typeof d?.task_id === 'string' && d.task_id) ? d.task_id : taskIdOrVideoId,
           task_id: (typeof d?.task_id === 'string' && d.task_id) ? d.task_id : taskIdOrVideoId,
+          task_kind: 'video',
           video_id: typeof d?.id === 'string' ? d.id : undefined,
           seedance_task_id: typeof d?.task_id === 'string' ? d.task_id : undefined,
           status: status as string,

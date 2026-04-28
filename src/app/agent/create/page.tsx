@@ -1149,14 +1149,21 @@ export default function CreativeAgentPageNew() {
       notifiedTerminalTaskRef.current.add(task.id);
 
       const isCurrentSessionTask = !task.session_id || !activeSessionId || task.session_id === activeSessionId;
+      const taskType = (task.task_type || '').toLowerCase();
+      const taskLabel =
+        taskType === 'image_generate'
+          ? '图片任务'
+          : taskType === 'video_generate'
+          ? '视频任务'
+          : '后台任务';
       const systemText =
         task.status === 'succeeded'
-          ? `后台任务已完成：${task.id.slice(0, 8)}`
+          ? `${taskLabel}已完成：${task.id.slice(0, 8)}`
           : task.status === 'partial_succeeded'
-          ? `后台任务部分完成：${task.id.slice(0, 8)}`
+          ? `${taskLabel}部分完成：${task.id.slice(0, 8)}`
           : task.status === 'failed'
-          ? `后台任务失败：${task.error_message || task.id.slice(0, 8)}`
-          : `后台任务已取消：${task.id.slice(0, 8)}`;
+          ? `${taskLabel}失败：${task.error_message || task.id.slice(0, 8)}`
+          : `${taskLabel}已取消：${task.id.slice(0, 8)}`;
 
       setMessages((prevMsgs) => {
         const msg: Message = {
