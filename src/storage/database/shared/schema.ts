@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, varchar, timestamp, boolean, integer, numeric, text, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, varchar, timestamp, boolean, integer, numeric, text, jsonb, index, uuid } from "drizzle-orm/pg-core";
 import { createSchemaFactory } from "drizzle-zod";
 import { z } from "zod";
 
@@ -39,7 +39,7 @@ export const videos = pgTable(
   {
     id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`), // video_id（我们系统生成的 UUID）
     user_id: varchar("user_id", { length: 36 }).notNull().references(() => users.id, { onDelete: "cascade" }),
-    session_id: varchar("session_id", { length: 36 }).references(() => agentSessions.id, { onDelete: "set null" }),
+    session_id: uuid("session_id").references(() => agentSessions.id, { onDelete: "set null" }),
     prompt: text("prompt").notNull(), // 视频生成提示词
     video_name: varchar("video_name", { length: 200 }), // 创意小海写的视频名称（用于多任务对应）
     script: text("script"), // 视频脚本
@@ -176,7 +176,7 @@ export const agentConversations = pgTable(
     id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
     user_id: varchar("user_id", { length: 36 }).notNull().references(() => users.id, { onDelete: "cascade" }),
     agent_type: varchar("agent_type", { length: 50 }).notNull(), // permission, finance, material
-    session_id: varchar("session_id", { length: 36 }), // 关联会话
+    session_id: uuid("session_id"), // 关联会话
     message: text("message").notNull(),
     response: text("response"),
     status: varchar("status", { length: 20 }).notNull().default('pending'), // pending, processing, completed
@@ -194,7 +194,7 @@ export const agentConversations = pgTable(
 export const agentSessions = pgTable(
   "agent_sessions",
   {
-    id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
     user_id: varchar("user_id", { length: 36 }).notNull().references(() => users.id, { onDelete: "cascade" }),
     agent_type: varchar("agent_type", { length: 50 }).notNull(), // permission, finance, material
     title: varchar("title", { length: 255 }),
@@ -433,7 +433,7 @@ export const agentConversationMessages = pgTable(
   {
     id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
     user_id: varchar("user_id", { length: 36 }).notNull().references(() => users.id, { onDelete: "cascade" }),
-    session_id: varchar("session_id", { length: 36 }).references(() => agentSessions.id, { onDelete: "set null" }),
+    session_id: uuid("session_id").references(() => agentSessions.id, { onDelete: "set null" }),
     role: varchar("role", { length: 20 }).notNull(), // user/assistant
     content: text("content").notNull(),
     parts: jsonb("parts"), // 富内容结构化片段（可选）
