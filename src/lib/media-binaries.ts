@@ -1,20 +1,28 @@
-import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { existsSync } from 'node:fs';
 
-// ffprobe-static has no bundled types in this project.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const ffprobeStatic = require('ffprobe-static') as { path?: string };
+function firstExisting(paths: string[]): string | null {
+  for (const p of paths) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
 
 export function getFfmpegBinary(): string {
   const envPath = process.env.FFMPEG_PATH;
   if (envPath && envPath.trim().length > 0) return envPath;
-  return ffmpegInstaller.path || 'ffmpeg';
+  return (
+    firstExisting(['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg']) ||
+    'ffmpeg'
+  );
 }
 
 export function getFfprobeBinary(): string {
   const envPath = process.env.FFPROBE_PATH;
   if (envPath && envPath.trim().length > 0) return envPath;
-  return ffprobeStatic.path || 'ffprobe';
+  return (
+    firstExisting(['/usr/bin/ffprobe', '/usr/local/bin/ffprobe']) ||
+    'ffprobe'
+  );
 }
 
 export function getYtDlpBinary(): string {
