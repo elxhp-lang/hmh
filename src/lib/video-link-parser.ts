@@ -4,6 +4,7 @@
  */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { getYtDlpBinary } from './media-binaries';
 
 const execFileAsync = promisify(execFile);
 
@@ -463,7 +464,7 @@ export async function downloadVideo(
  */
 export async function extractVideoUrlWithYtDlp(url: string): Promise<YtDlpExtractResult | null> {
   try {
-    const { stdout } = await execFileAsync('yt-dlp', [
+    const { stdout } = await execFileAsync(getYtDlpBinary(), [
       '--dump-single-json',
       '--no-playlist',
       '--no-warnings',

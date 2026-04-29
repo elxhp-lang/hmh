@@ -24,6 +24,7 @@ import * as os from 'os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { VideoStorageService } from './tos-storage';
+import { getFfmpegBinary, getFfprobeBinary } from './media-binaries';
 
 // 知识库表名
 const KNOWLEDGE_TABLE = 'hmhv_video_learning';
@@ -271,7 +272,7 @@ export class VideoLearningService {
   }
 
   private async getVideoDurationSeconds(filePath: string): Promise<number> {
-    const { stdout } = await execFileAsync('ffprobe', [
+    const { stdout } = await execFileAsync(getFfprobeBinary(), [
       '-v',
       'error',
       '-show_entries',
@@ -299,7 +300,7 @@ export class VideoLearningService {
     const videoBitrate = Math.max(220_000, totalBitrate - audioBitrate);
 
     try {
-      await execFileAsync('ffmpeg', [
+      await execFileAsync(getFfmpegBinary(), [
         '-y',
         '-i',
         inputPath,

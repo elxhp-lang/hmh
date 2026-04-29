@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { getFfmpegBinary, getFfprobeBinary, getYtDlpBinary } from '@/lib/media-binaries';
 
 const execFileAsync = promisify(execFile);
 
@@ -21,9 +22,9 @@ async function checkBinary(command: string, args: string[] = ['--version']): Pro
  */
 export async function GET() {
   const [ffmpegAvailable, ffprobeAvailable, ytDlpAvailable] = await Promise.all([
-    checkBinary('ffmpeg'),
-    checkBinary('ffprobe'),
-    checkBinary('yt-dlp'),
+    checkBinary(getFfmpegBinary()),
+    checkBinary(getFfprobeBinary()),
+    checkBinary(getYtDlpBinary()),
   ]);
 
   const healthInfo = {
