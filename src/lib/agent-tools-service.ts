@@ -788,6 +788,18 @@ export class AgentToolsService {
           (typeof outputData.image_id === 'string' && outputData.image_id) ||
           undefined;
 
+        // 如果这是“视频生成”类 worker，但当前还没有写入 public_video_url/video_url，
+        // 则可以直接用 seedance_task_id 去拉取 Seedance 的最新状态并回填返回结果。
+        const seedanceTaskId =
+          (typeof submitResult.seedance_task_id === 'string' && submitResult.seedance_task_id) ||
+          (typeof outputData.seedance_task_id === 'string' && outputData.seedance_task_id) ||
+          undefined;
+
+        let resolvedStatus = String(workerData.status || 'running');
+        let resolvedProgress = Number(workerData.progress || 0);
+        let resolvedVideoUrl = workerVideoUrl;
+        let resolvedError = workerData.error_message || undefined;
+
         // output_data 会被聚合结果覆盖，补查最近的成功子任务结果作为真实输出来源
         if (!workerVideoUrl || !workerImageUrl || !workerImageId) {
           const { data: latestItems } = await this.supabase
@@ -819,9 +831,29 @@ export class AgentToolsService {
           }
         }
 
+        // 兜底：worker 内拿不到视频 URL 时，直接查询 Seedance。
+        if (!resolvedVideoUrl && seedanceTaskId) {
+          try {
+            const taskStatus = await this.seedance.getTask(seedanceTaskId);
+            const normalized = normalizeVideoTaskStatus(taskStatus.status);
+            resolvedStatus =
+              normalized === 'completed' ? 'completed' :
+              normalized === 'failed' ? 'failed' :
+              normalized === 'processing' ? 'processing' :
+              'pending';
+            resolvedProgress = normalized === 'completed' ? 100 : normalized === 'processing' ? 60 : 10;
+            resolvedVideoUrl = taskStatus.content?.video_url || resolvedVideoUrl;
+            if (normalized === 'failed') {
+              resolvedError = taskStatus.error?.message || resolvedError;
+            }
+          } catch (e) {
+            console.warn('[queryTaskStatus] worker seedance fallback failed:', e);
+          }
+        }
+
         const taskKind: 'image' | 'video' | 'worker' = workerImageUrl || workerImageId
           ? 'image'
-          : (workerVideoUrl ? 'video' : 'worker');
+          : (resolvedVideoUrl ? 'video' : 'worker');
         return {
           success: true as const,
           data: {
@@ -836,10 +868,10 @@ export class AgentToolsService {
             image_id: workerImageId,
             image_url: workerImageUrl,
             public_image_url: workerImageUrl,
-            status: String(workerData.status || 'running'),
-            progress: Number(workerData.progress || 0),
-            video_url: workerVideoUrl,
-            error: workerData.error_message || undefined,
+            status: resolvedStatus,
+            progress: resolvedProgress,
+            video_url: resolvedVideoUrl,
+            error: resolvedError,
           },
         };
       };

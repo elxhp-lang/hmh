@@ -45,6 +45,8 @@ export async function GET(request: NextRequest) {
       .from('worker_tasks')
       .select('id,user_id,session_id,task_type,status,progress,priority,error_message,retry_count,max_retries,queued_at,started_at,completed_at,created_at,updated_at,input_data,output_data')
       .eq('user_id', userId)
+      // 对话反馈不算“后台任务”，只展示工具调用型任务
+      .neq('task_type', 'creative_chat')
       .order('created_at', { ascending: false })
       .limit(limit);
 
