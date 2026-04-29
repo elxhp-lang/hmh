@@ -63,6 +63,19 @@ interface LearningVideo {
     videoId?: string;
     originalUrl?: string;
     cover?: string;
+    scenes?: string[];
+    transitions?: string[];
+    pacing?: string;
+  };
+  camera_analysis?: {
+    movements?: string[];
+    angles?: string[];
+    techniques?: string[];
+  };
+  color_analysis?: {
+    dominantColors?: string[];
+    colorMood?: string;
+    lightingStyle?: string;
   };
   created_at: string;
   analyzed_at?: string;
@@ -758,6 +771,18 @@ export default function LearningLibraryPage() {
                 </DialogHeader>
                 
                 <div className="space-y-4 mt-4">
+                  {selectedVideo.video_url && (
+                    <div>
+                      <h4 className="font-medium mb-2">视频预览</h4>
+                      <video
+                        src={selectedVideo.video_url}
+                        controls
+                        preload="metadata"
+                        className="w-full rounded-lg border bg-black"
+                      />
+                    </div>
+                  )}
+
                   {/* 抖音信息 */}
                   {selectedVideo.scene_analysis?.source === 'douyin' && (
                     <div className="p-3 rounded-lg bg-muted/50">
@@ -784,6 +809,78 @@ export default function LearningLibraryPage() {
                     <div>
                       <h4 className="font-medium mb-1">内容摘要</h4>
                       <p className="text-sm text-muted-foreground">{selectedVideo.summary}</p>
+                    </div>
+                  )}
+
+                  {/* 场景分析 */}
+                  {(selectedVideo.scene_analysis?.scenes?.length ||
+                    selectedVideo.scene_analysis?.transitions?.length ||
+                    selectedVideo.scene_analysis?.pacing) && (
+                    <div>
+                      <h4 className="font-medium mb-2">场景分析</h4>
+                      {selectedVideo.scene_analysis?.scenes?.length ? (
+                        <p className="text-sm text-muted-foreground mb-1">
+                          场景：{selectedVideo.scene_analysis.scenes.join('、')}
+                        </p>
+                      ) : null}
+                      {selectedVideo.scene_analysis?.transitions?.length ? (
+                        <p className="text-sm text-muted-foreground mb-1">
+                          转场：{selectedVideo.scene_analysis.transitions.join('、')}
+                        </p>
+                      ) : null}
+                      {selectedVideo.scene_analysis?.pacing ? (
+                        <p className="text-sm text-muted-foreground">
+                          节奏：{selectedVideo.scene_analysis.pacing}
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
+
+                  {/* 镜头分析 */}
+                  {(selectedVideo.camera_analysis?.movements?.length ||
+                    selectedVideo.camera_analysis?.angles?.length ||
+                    selectedVideo.camera_analysis?.techniques?.length) && (
+                    <div>
+                      <h4 className="font-medium mb-2">镜头分析</h4>
+                      {selectedVideo.camera_analysis?.movements?.length ? (
+                        <p className="text-sm text-muted-foreground mb-1">
+                          运动：{selectedVideo.camera_analysis.movements.join('、')}
+                        </p>
+                      ) : null}
+                      {selectedVideo.camera_analysis?.angles?.length ? (
+                        <p className="text-sm text-muted-foreground mb-1">
+                          角度：{selectedVideo.camera_analysis.angles.join('、')}
+                        </p>
+                      ) : null}
+                      {selectedVideo.camera_analysis?.techniques?.length ? (
+                        <p className="text-sm text-muted-foreground">
+                          技法：{selectedVideo.camera_analysis.techniques.join('、')}
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
+
+                  {/* 色彩分析 */}
+                  {(selectedVideo.color_analysis?.dominantColors?.length ||
+                    selectedVideo.color_analysis?.colorMood ||
+                    selectedVideo.color_analysis?.lightingStyle) && (
+                    <div>
+                      <h4 className="font-medium mb-2">色彩分析</h4>
+                      {selectedVideo.color_analysis?.dominantColors?.length ? (
+                        <p className="text-sm text-muted-foreground mb-1">
+                          主色：{selectedVideo.color_analysis.dominantColors.join('、')}
+                        </p>
+                      ) : null}
+                      {selectedVideo.color_analysis?.colorMood ? (
+                        <p className="text-sm text-muted-foreground mb-1">
+                          色彩氛围：{selectedVideo.color_analysis.colorMood}
+                        </p>
+                      ) : null}
+                      {selectedVideo.color_analysis?.lightingStyle ? (
+                        <p className="text-sm text-muted-foreground">
+                          光影风格：{selectedVideo.color_analysis.lightingStyle}
+                        </p>
+                      ) : null}
                     </div>
                   )}
                   

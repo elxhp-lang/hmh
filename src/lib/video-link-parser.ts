@@ -2,6 +2,10 @@
  * 视频链接解析服务
  * 支持多平台视频链接解析：抖音、快手、视频号、B站、小红书等
  */
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 export type VideoPlatform = 
   | 'douyin' 
@@ -29,6 +33,15 @@ export interface VideoLinkInfo {
   originalUrl: string;
   tags?: string[];
   extra?: Record<string, unknown>;
+}
+
+export interface YtDlpExtractResult {
+  videoUrl?: string;
+  title?: string;
+  duration?: number;
+  uploader?: string;
+  thumbnail?: string;
+  extractor?: string;
 }
 
 // 平台配置
@@ -442,4 +455,52 @@ export async function downloadVideo(
     contentType,
     size: buffer.length,
   };
+}
+
+/**
+ * 使用 yt-dlp 提取视频直链（兜底方案）
+ * 依赖服务器已安装 yt-dlp 命令
+ */
+export async function extractVideoUrlWithYtDlp(url: string): Promise<YtDlpExtractResult | null> {
+  try {
+    const { stdout } = await execFileAsync('yt-dlp', [
+      '--dump-single-json',
+      '--no-playlist',
+      '--no-warnings',
+      '--skip-download',
+      url,
+    ]);
+
+    const payload = JSON.parse(String(stdout || '{}')) as {
+      url?: string;
+      title?: string;
+      duration?: number;
+      uploader?: string;
+      thumbnail?: string;
+      extractor?: string;
+      requested_formats?: Array<{ url?: string }>;
+      formats?: Array<{ url?: string; protocol?: string }>;
+    };
+
+    const directUrl =
+      payload.url ||
+      payload.requested_formats?.find((f) => typeof f.url === 'string')?.url ||
+      payload.formats?.find((f) => typeof f.url === 'string' && f.protocol !== 'm3u8_native')?.url;
+
+    if (!directUrl) {
+      return null;
+    }
+
+    return {
+      videoUrl: directUrl,
+      title: payload.title,
+      duration: payload.duration,
+      uploader: payload.uploader,
+      thumbnail: payload.thumbnail,
+      extractor: payload.extractor,
+    };
+  } catch (error) {
+    console.warn('[视频解析] yt-dlp 提取失败:', error);
+    return null;
+  }
 }

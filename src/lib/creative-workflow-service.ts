@@ -18,7 +18,7 @@
 import { LLMClient, Config } from 'coze-coding-dev-sdk';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { imageGenerationService } from '@/lib/image-generation-service';
-import { VideoLinkParser, PLATFORM_CONFIG } from '@/lib/video-link-parser';
+import { VideoLinkParser, PLATFORM_CONFIG, extractVideoUrlWithYtDlp } from '@/lib/video-link-parser';
 import { agentMemoryService } from '@/lib/agent-memory-service';
 import { createVideoLearningService, VideoAnalysisResult } from '@/lib/video-learning-service';
 import {
@@ -2039,16 +2039,30 @@ ${JSON.stringify(workflow.script, null, 2)}`;
     try {
       const platform = VideoLinkParser.detectPlatform(url);
       const info = await VideoLinkParser.parse(url);
+      let resolvedVideoUrl = info.videoUrl;
+      let resolvedTitle = info.title;
+      let resolvedAuthor = info.author;
+
+      // 平台解析拿不到直链时，使用 yt-dlp 兜底提取
+      if (!resolvedVideoUrl) {
+        const extracted = await extractVideoUrlWithYtDlp(url);
+        if (extracted?.videoUrl) {
+          resolvedVideoUrl = extracted.videoUrl;
+          resolvedTitle = extracted.title || resolvedTitle;
+          resolvedAuthor = extracted.uploader || resolvedAuthor;
+          console.log('[工作流] yt-dlp 兜底提取成功:', extracted.extractor || 'unknown');
+        }
+      }
 
       return {
         type: 'video_link',
         url,
-        description: info.title,
+        description: resolvedTitle,
         parsed_info: {
           platform: PLATFORM_CONFIG[platform]?.name,
-          title: info.title,
-          author: info.author,
-          video_url: info.videoUrl,
+          title: resolvedTitle,
+          author: resolvedAuthor,
+          video_url: resolvedVideoUrl,
         },
       };
     } catch (error) {

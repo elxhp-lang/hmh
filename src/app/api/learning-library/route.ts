@@ -4,7 +4,7 @@ import { LearningLibraryStorage, VideoStorageService } from '@/lib/tos-storage';
 import { videoLearningService } from '@/lib/video-learning-service';
 import { HeaderUtils } from 'coze-coding-dev-sdk';
 import jwt from 'jsonwebtoken';
-import { VideoLinkParser, PLATFORM_CONFIG } from '@/lib/video-link-parser';
+import { VideoLinkParser, PLATFORM_CONFIG, extractVideoUrlWithYtDlp, downloadVideo } from '@/lib/video-link-parser';
 import Busboy from 'busboy';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -293,30 +293,39 @@ async function handleVideoLinkUpload(
       hasVideoUrl: !!videoInfo.videoUrl,
     });
 
+    let resolvedVideoUrl = videoInfo.videoUrl;
+    let resolvedTitle = videoInfo.title;
+    let resolvedAuthor = videoInfo.author;
+    let resolvedDuration = videoInfo.duration;
+    let resolvedCover = videoInfo.cover;
+
+    // 平台解析拿不到直链时，使用 yt-dlp 兜底提取
+    if (!resolvedVideoUrl) {
+      const extracted = await extractVideoUrlWithYtDlp(url);
+      if (extracted?.videoUrl) {
+        resolvedVideoUrl = extracted.videoUrl;
+        resolvedTitle = extracted.title || resolvedTitle;
+        resolvedAuthor = extracted.uploader || resolvedAuthor;
+        resolvedDuration = extracted.duration || resolvedDuration;
+        resolvedCover = extracted.thumbnail || resolvedCover;
+        console.log('[学习库] yt-dlp 提取成功:', { extractor: extracted.extractor, hasVideoUrl: true });
+      }
+    }
+
     // 如果有视频URL，下载视频
-    if (videoInfo.videoUrl) {
+    if (resolvedVideoUrl) {
       console.log(`[学习库] 开始下载视频...`);
-      
-      const { buffer, size } = await fetch(videoInfo.videoUrl, {
+      const { buffer, size } = await downloadVideo(resolvedVideoUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15',
           'Referer': url,
         },
-      }).then(async res => {
-        if (!res.ok) {
-          throw new Error(`视频下载失败: ${res.status}`);
-        }
-        const arrayBuffer = await res.arrayBuffer();
-        return {
-          buffer: Buffer.from(arrayBuffer),
-          size: arrayBuffer.byteLength,
-        };
       });
 
       console.log(`[学习库] 视频下载完成，大小: ${(size / 1024 / 1024).toFixed(2)} MB`);
 
       // 上传到 TOS 学习库
-      const fileName = `${videoInfo.platform}_${videoInfo.videoId}.mp4`;
+      const fileName = `${videoInfo.platform}_${videoInfo.videoId || Date.now()}.mp4`;
       const fileKey = await LearningLibraryStorage.uploadLearningVideo(
         userId,
         buffer,
@@ -338,21 +347,21 @@ async function handleVideoLinkUpload(
         .from('learning_library')
         .insert({
           user_id: userId,
-          video_name: videoInfo.title,
+          video_name: resolvedTitle,
           video_key: fileKey,
           video_url: storedUrl,
           video_size: size,
-          video_duration: videoInfo.duration,
+          video_duration: resolvedDuration,
           analysis_status: 'pending',
           // 存储来源元数据
           scene_analysis: {
             source: videoInfo.platform,
             sourceName: platformName,
-            author: videoInfo.author,
+            author: resolvedAuthor,
             authorId: videoInfo.authorId,
             videoId: videoInfo.videoId,
             originalUrl: url,
-            cover: videoInfo.cover,
+            cover: resolvedCover,
             likes: videoInfo.likes,
             comments: videoInfo.comments,
             shares: videoInfo.shares,
@@ -378,17 +387,17 @@ async function handleVideoLinkUpload(
 
       // 异步启动分析
       setTimeout(() => {
-        startVideoAnalysis(learningRow.id, storedUrl, videoInfo.title, headers);
+        startVideoAnalysis(learningRow.id, storedUrl, resolvedTitle, headers);
       }, 1000);
 
       return NextResponse.json({
         success: true,
         learning: {
           id: learningRow.id,
-          name: videoInfo.title,
+          name: resolvedTitle,
           size,
-          duration: videoInfo.duration,
-          author: videoInfo.author,
+          duration: resolvedDuration,
+          author: resolvedAuthor,
           platform: videoInfo.platform,
           platformName,
           status: 'pending',

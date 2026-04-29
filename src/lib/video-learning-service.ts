@@ -21,10 +21,15 @@ import { getSupabaseClient } from '@/storage/database/supabase-client';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { VideoStorageService } from './tos-storage';
 
 // 知识库表名
 const KNOWLEDGE_TABLE = 'hmhv_video_learning';
+const VISION_VIDEO_LIMIT_MB = 52;
+const VISION_SAFE_TARGET_MB = 50;
+const execFileAsync = promisify(execFile);
 
 export interface VideoAnalysisResult {
   videoStyle: string;
@@ -107,6 +112,7 @@ export class VideoLearningService {
     const isTosKey = !videoUrlOrKey.startsWith('http');
     let videoUrl = videoUrlOrKey;
     let localFilePath: string | null = null;
+    let downloadedTempPathForCompress: string | null = null;
     
     // 如果是 tos_key，优先尝试使用公开 URL
     if (isTosKey) {
@@ -145,7 +151,33 @@ export class VideoLearningService {
     
     try {
       // 1. 使用视觉模型直接分析视频内容
-      const videoAnalysis = await this.analyzeVideoWithVision(videoUrl, videoName);
+      let videoAnalysis: VideoAnalysisResult;
+      try {
+        videoAnalysis = await this.analyzeVideoWithVision(videoUrl, videoName);
+      } catch (error) {
+        if (!this.isVisionSizeLimitError(error)) {
+          throw error;
+        }
+
+        console.warn(`[视频学习] 命中视觉模型体积限制（>${VISION_VIDEO_LIMIT_MB}MB），尝试自动压缩后重试`);
+
+        // 如果当前是 URL（非本地文件），先下载到本地临时文件再压缩
+        let sourcePathForCompress = localFilePath;
+        if (!sourcePathForCompress) {
+          downloadedTempPathForCompress = await this.downloadRemoteVideoToTemp(videoUrl);
+          sourcePathForCompress = downloadedTempPathForCompress;
+        }
+
+        const compressedPath = await this.compressVideoToTargetSize(
+          sourcePathForCompress,
+          VISION_SAFE_TARGET_MB
+        );
+        try {
+          videoAnalysis = await this.analyzeVideoWithVision(compressedPath, videoName);
+        } finally {
+          this.cleanupTempFile(compressedPath);
+        }
+      }
       
       // 2. 生成视频嵌入（用于语义搜索）
       let videoEmbedding: number[] | undefined;
@@ -164,6 +196,9 @@ export class VideoLearningService {
       // 清理临时文件
       if (localFilePath) {
         this.cleanupTempFile(localFilePath);
+      }
+      if (downloadedTempPathForCompress) {
+        this.cleanupTempFile(downloadedTempPathForCompress);
       }
     }
   }
@@ -210,6 +245,91 @@ export class VideoLearningService {
     } catch (error) {
       console.warn(`[视频学习] 清理临时文件失败: ${error}`);
     }
+  }
+
+  private isVisionSizeLimitError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error || '');
+    return (
+      /size of the input video/i.test(message) ||
+      /exceeds the limit\s*\(\s*52\s*MB\s*\)/i.test(message)
+    );
+  }
+
+  private async downloadRemoteVideoToTemp(videoUrl: string): Promise<string> {
+    const response = await fetch(videoUrl);
+    if (!response.ok) {
+      throw new Error(`下载待压缩视频失败: ${response.status} ${response.statusText}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const tempFilePath = path.join(
+      os.tmpdir(),
+      `video_remote_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`
+    );
+    fs.writeFileSync(tempFilePath, Buffer.from(arrayBuffer));
+    return tempFilePath;
+  }
+
+  private async getVideoDurationSeconds(filePath: string): Promise<number> {
+    const { stdout } = await execFileAsync('ffprobe', [
+      '-v',
+      'error',
+      '-show_entries',
+      'format=duration',
+      '-of',
+      'default=noprint_wrappers=1:nokey=1',
+      filePath,
+    ]);
+    const duration = Number.parseFloat(String(stdout).trim());
+    if (!Number.isFinite(duration) || duration <= 0) {
+      throw new Error('无法读取视频时长');
+    }
+    return duration;
+  }
+
+  private async compressVideoToTargetSize(inputPath: string, targetMb: number): Promise<string> {
+    const outputPath = path.join(
+      os.tmpdir(),
+      `video_compressed_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`
+    );
+    const duration = await this.getVideoDurationSeconds(inputPath);
+    const targetBytes = targetMb * 1024 * 1024;
+    const totalBitrate = Math.floor((targetBytes * 8) / duration * 0.92);
+    const audioBitrate = 96_000;
+    const videoBitrate = Math.max(220_000, totalBitrate - audioBitrate);
+
+    try {
+      await execFileAsync('ffmpeg', [
+        '-y',
+        '-i',
+        inputPath,
+        '-c:v',
+        'libx264',
+        '-b:v',
+        `${videoBitrate}`,
+        '-maxrate',
+        `${videoBitrate}`,
+        '-bufsize',
+        `${videoBitrate * 2}`,
+        '-preset',
+        'veryfast',
+        '-c:a',
+        'aac',
+        '-b:a',
+        '96k',
+        '-movflags',
+        '+faststart',
+        outputPath,
+      ]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error || '');
+      if (/ENOENT/i.test(message) || /not recognized/i.test(message)) {
+        throw new Error('环境未安装 ffmpeg/ffprobe，无法自动压缩大视频');
+      }
+      throw new Error(`自动压缩失败: ${message}`);
+    }
+
+    return outputPath;
   }
 
   /**
@@ -333,6 +453,9 @@ export class VideoLearningService {
       throw new Error('无法解析分析结果');
     } catch (error) {
       console.error('[视频学习] 视觉分析失败:', error);
+      if (this.isVisionSizeLimitError(error)) {
+        throw error;
+      }
       
       // 返回基础分析结果
       return this.getFallbackAnalysis(videoName, error);
@@ -344,12 +467,19 @@ export class VideoLearningService {
    */
   private getFallbackAnalysis(videoName: string, error: unknown): VideoAnalysisResult {
     console.log(`[视频学习] 使用备用分析结果`);
+    const errorMessage = error instanceof Error ? error.message : '未知错误';
+    const isVideoSizeLimit =
+      /exceeds the limit\s*\(\s*52\s*MB\s*\)/i.test(errorMessage) ||
+      /size of the input video/i.test(errorMessage);
+    const userSummary = isVideoSizeLimit
+      ? `视频「${videoName}」已添加到学习库。当前模型的视频直读存在单次体积上限（约 52MB），该视频已自动进入轻量学习模式并保留为参考素材。若需要完整镜头/节奏分析，建议上传压缩版（<=52MB）后重新分析。`
+      : `视频「${videoName}」已添加到学习库。分析过程中遇到问题，已自动降级为轻量学习模式，您可以稍后重试或补充更清晰的参考样本。`;
     
     return {
       videoType: '待分析',
       videoStyle: '通用风格',
       videoTheme: videoName,
-      summary: `视频「${videoName}」已添加到学习库。分析过程中遇到问题：${error instanceof Error ? error.message : '未知错误'}。您可以手动补充视频信息。`,
+      summary: userSummary,
       targetAudience: '通用受众',
       emotionalTone: '中性',
       mainSubjects: [],
