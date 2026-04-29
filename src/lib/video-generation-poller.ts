@@ -58,6 +58,7 @@ export class VideoGenerationPoller {
   private _supabase: ReturnType<typeof getSupabaseClient> | null = null;
   private _seedance: SeedanceClient | null = null;
   private _taskStateService: TaskStateService | null = null;
+  private _videosColumnCache: Record<string, boolean> | null = null;
   private isRunning = false;
   private pollInterval = 30000; // 30秒轮询一次
   private timer: NodeJS.Timeout | null = null;
@@ -81,6 +82,31 @@ export class VideoGenerationPoller {
       this._taskStateService = new TaskStateService();
     }
     return this._taskStateService;
+  }
+
+  private async getVideosColumnCache(): Promise<Record<string, boolean>> {
+    if (this._videosColumnCache) return this._videosColumnCache;
+    try {
+      const result = await this.supabase.query<{ column_name: string }>(
+        `
+          select column_name
+          from information_schema.columns
+          where table_schema = 'public' and table_name = 'videos'
+        `
+      );
+      const cols = new Set((result.rows || []).map((row) => row.column_name));
+      this._videosColumnCache = {
+        public_video_url: cols.has('public_video_url'),
+        error_reason: cols.has('error_reason'),
+      };
+    } catch (error) {
+      console.warn('[VideoPoller] 读取 videos 列信息失败，使用保守写入策略:', error);
+      this._videosColumnCache = {
+        public_video_url: false,
+        error_reason: false,
+      };
+    }
+    return this._videosColumnCache;
   }
 
   private async findWorkerTask(videoId: string, userId: string): Promise<{ id: string; sessionId: string | null } | null> {
@@ -284,16 +310,23 @@ export class VideoGenerationPoller {
       console.log(`[VideoPoller] 视频公开URL: ${publicVideoUrl}`);
 
       // 5. 更新数据库（使用实际存在的字段）
-      await this.supabase
+      const columns = await this.getVideosColumnCache();
+      const updatePayload: Record<string, unknown> = {
+        status: 'completed',
+        tos_key: tosKey,
+        result_url: publicVideoUrl, // 兼容旧读取口径
+        updated_at: new Date().toISOString(),
+      };
+      if (columns.public_video_url) {
+        updatePayload.public_video_url = publicVideoUrl;
+      }
+      const { error: updateError } = await this.supabase
         .from('videos')
-        .update({
-          status: 'completed',
-          tos_key: tosKey,
-          public_video_url: publicVideoUrl,
-          result_url: publicVideoUrl,  // 兼容旧读取口径
-          updated_at: new Date().toISOString()
-        })
+        .update(updatePayload)
         .eq('id', videoId);
+      if (updateError) {
+        throw new Error(`写入视频完成状态失败: ${updateError.message}`);
+      }
       const workerTask = await this.findWorkerTask(videoId, userId);
       if (workerTask) {
         await this.taskStateService.transitionTask(workerTask.id, 'succeeded', {
@@ -340,14 +373,23 @@ export class VideoGenerationPoller {
     const errorReason = taskStatus.error?.message || '未知错误';
 
     // 更新数据库
-    await this.supabase
+    const columns = await this.getVideosColumnCache();
+    const updatePayload: Record<string, unknown> = {
+      status: 'failed',
+      error_message: errorReason,
+      updated_at: new Date().toISOString(),
+    };
+    if (columns.error_reason) {
+      updatePayload.error_reason = errorReason;
+    }
+    const { error: updateError } = await this.supabase
       .from('videos')
-      .update({
-        status: 'failed',
-        error_reason: errorReason,
-        updated_at: new Date().toISOString()
-      })
+      .update(updatePayload)
       .eq('id', videoId);
+    if (updateError) {
+      console.error('[VideoPoller] 写入失败状态失败:', updateError);
+      return;
+    }
     if (video?.user_id) {
       const workerTask = await this.findWorkerTask(videoId, String(video.user_id));
       if (workerTask) {
