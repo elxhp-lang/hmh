@@ -3,7 +3,6 @@ set -Eeuo pipefail
 
 COZE_WORKSPACE_PATH="${COZE_WORKSPACE_PATH:-$(pwd)}"
 export PATH="${HOME:-/root}/.local/bin:${PATH}"
-export PATH="${COZE_WORKSPACE_PATH}/bin:${PATH}"
 
 PORT=5000
 DEPLOY_RUN_PORT="${DEPLOY_RUN_PORT:-$PORT}"
@@ -23,22 +22,6 @@ run_with_timeout() {
 }
 
 ensure_runtime_media_tools() {
-    if [[ -f "${COZE_WORKSPACE_PATH}/bin/ffmpeg" && -z "${FFMPEG_PATH:-}" ]]; then
-        export FFMPEG_PATH="${COZE_WORKSPACE_PATH}/bin/ffmpeg"
-    fi
-    if [[ -f "${COZE_WORKSPACE_PATH}/bin/ffprobe" && -z "${FFPROBE_PATH:-}" ]]; then
-        export FFPROBE_PATH="${COZE_WORKSPACE_PATH}/bin/ffprobe"
-    fi
-    if [[ -f "${COZE_WORKSPACE_PATH}/bin/yt-dlp" && -z "${YTDLP_PATH:-}" ]]; then
-        export YTDLP_PATH="${COZE_WORKSPACE_PATH}/bin/yt-dlp"
-    fi
-
-    if [[ -d "${COZE_WORKSPACE_PATH}/bin" ]]; then
-        chmod +x "${COZE_WORKSPACE_PATH}/bin/ffmpeg" 2>/dev/null || true
-        chmod +x "${COZE_WORKSPACE_PATH}/bin/ffprobe" 2>/dev/null || true
-        chmod +x "${COZE_WORKSPACE_PATH}/bin/yt-dlp" 2>/dev/null || true
-    fi
-
     local ffmpeg_ok=0
     local ffprobe_ok=0
     local ytdlp_ok=0

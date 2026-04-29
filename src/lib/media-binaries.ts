@@ -1,5 +1,4 @@
 import { existsSync } from 'node:fs';
-import path from 'node:path';
 
 function firstExisting(paths: string[]): string | null {
   for (const p of paths) {
@@ -11,9 +10,8 @@ function firstExisting(paths: string[]): string | null {
 export function getFfmpegBinary(): string {
   const envPath = process.env.FFMPEG_PATH;
   if (envPath && envPath.trim().length > 0) return envPath;
-  const localPath = path.join(process.cwd(), 'bin', 'ffmpeg');
   return (
-    firstExisting([localPath, '/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg']) ||
+    firstExisting(['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg']) ||
     'ffmpeg'
   );
 }
@@ -21,9 +19,8 @@ export function getFfmpegBinary(): string {
 export function getFfprobeBinary(): string {
   const envPath = process.env.FFPROBE_PATH;
   if (envPath && envPath.trim().length > 0) return envPath;
-  const localPath = path.join(process.cwd(), 'bin', 'ffprobe');
   return (
-    firstExisting([localPath, '/usr/bin/ffprobe', '/usr/local/bin/ffprobe']) ||
+    firstExisting(['/usr/bin/ffprobe', '/usr/local/bin/ffprobe']) ||
     'ffprobe'
   );
 }
@@ -31,10 +28,6 @@ export function getFfprobeBinary(): string {
 export function getYtDlpBinary(): string {
   const envPath = process.env.YTDLP_PATH;
   if (envPath && envPath.trim().length > 0) return envPath;
-  const localPath = path.join(process.cwd(), 'bin', 'yt-dlp');
-  if (existsSync(localPath)) {
-    return localPath;
-  }
 
   const home = process.env.HOME || process.env.USERPROFILE;
   if (home) {
