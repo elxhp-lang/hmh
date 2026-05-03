@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, varchar, timestamp, boolean, integer, numeric, text, jsonb, index, uuid } from "drizzle-orm/pg-core";
+import { pgTable, varchar, timestamp, boolean, integer, bigint, numeric, text, jsonb, index, uuid } from "drizzle-orm/pg-core";
 import { createSchemaFactory } from "drizzle-zod";
 import { z } from "zod";
 
@@ -20,8 +20,10 @@ export const users = pgTable(
     role: varchar("role", { length: 20 }).notNull().default('member'), // super_admin, finance, material_leader, material_member
     status: varchar("status", { length: 20 }).notNull().default('pending'), // pending, active, disabled
     storage_path: varchar("storage_path", { length: 255 }), // TOS 存储路径
-    storage_quota: integer("storage_quota").default(10737418240), // 存储配额（字节），默认 10GB
-    storage_used: integer("storage_used").default(0), // 已使用存储（字节）
+    display_name: varchar("display_name", { length: 50 }),
+    avatar_url: varchar("avatar_url", { length: 500 }),
+    storage_quota: bigint("storage_quota", { mode: 'number' }).default(10737418240), // 存储配额（字节），默认 10GB
+    storage_used: bigint("storage_used", { mode: 'number' }).default(0), // 已使用存储（字节）
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updated_at: timestamp("updated_at", { withTimezone: true }),
   },
@@ -64,7 +66,7 @@ export const videos = pgTable(
     source_task_id: varchar("source_task_id", { length: 100 }),
     is_remix: boolean("is_remix").notNull().default(false),
     status: varchar("status", { length: 20 }).notNull().default('pending'), // pending, processing, completed, failed
-    seedance_task_id: varchar("seedance_task_id", { length: 100 }), // Seedance 任务 ID（仅用于查询进度）
+    task_id: varchar("task_id", { length: 100 }), // Seedance 返回的任务 ID（用于查询进度）
     result_url: varchar("result_url", { length: 500 }), // 生成视频临时 URL（火山引擎返回）
     tos_key: varchar("tos_key", { length: 500 }), // TOS 存储的 key（持久化）
     public_video_url: varchar("public_video_url", { length: 500 }), // 公开永久 URL（播放、学习、下载都用它）
@@ -75,7 +77,8 @@ export const videos = pgTable(
     last_frame_url: varchar("last_frame_url", { length: 500 }), // 尾帧图片 URL
     last_frame_tos_key: varchar("last_frame_tos_key", { length: 500 }), // 尾帧 TOS 存储的 key
     cost: numeric("cost", { precision: 10, scale: 2 }), // 费用 USDC
-    error_reason: text("error_reason"), // 生成失败原因（原 error_message 字段）
+    error_message: text("error_message"), // 生成失败原因
+    error_reason: text("error_reason"), // 生成失败原因（新）
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updated_at: timestamp("updated_at", { withTimezone: true }),
   },
@@ -85,7 +88,7 @@ export const videos = pgTable(
     index("videos_status_idx").on(table.status),
     index("videos_created_at_idx").on(table.created_at),
     index("videos_tos_key_idx").on(table.tos_key),
-    index("videos_seedance_task_id_idx").on(table.seedance_task_id),
+    index("videos_task_id_idx").on(table.task_id),
     index("videos_category_idx").on(table.category),
     index("videos_tag_source_idx").on(table.tag_source),
     index("videos_auto_tag_status_idx").on(table.auto_tag_status),
@@ -294,7 +297,7 @@ export const uploadedFiles = pgTable(
     user_id: varchar("user_id", { length: 36 }).notNull().references(() => users.id, { onDelete: "cascade" }),
     file_name: varchar("file_name", { length: 255 }).notNull(),
     file_type: varchar("file_type", { length: 50 }).notNull(), // image, video, audio
-    file_size: integer("file_size").notNull(),
+    file_size: bigint("file_size", { mode: 'number' }).notNull(),
     file_url: varchar("file_url", { length: 500 }).notNull(),
     source: varchar("source", { length: 50 }).notNull().default('upload'), // upload, douyin
     source_url: varchar("source_url", { length: 500 }), // 抖音原链接

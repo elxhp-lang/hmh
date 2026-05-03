@@ -15,7 +15,8 @@ interface VideoTaskRow {
 interface VideoStatusRow {
   id: string;
   status?: string;
-  task_id?: string;
+  seedance_task_id?: string;
+  task_id?: string; // 兼容旧数据库
   duration?: number;
   task_type?: string;
   prompt?: string;
@@ -29,7 +30,8 @@ interface VideoStatusRow {
   result_url?: string;
   tos_key?: string | null;
   cost?: number;
-  error_message?: string;
+  error_reason?: string;
+  error_message?: string; // 兼容旧数据库
 }
 
 interface TagDefinitionRow {
@@ -299,7 +301,7 @@ export async function POST(request: NextRequest) {
         tools: webSearch ? [{ type: 'web_search' }] : undefined,
       });
 
-      // 更新任务ID
+      // 更新 Seedance 任务 ID
       await supabase
         .from('videos')
         .update({ task_id: taskResponse.id })
@@ -332,7 +334,7 @@ export async function POST(request: NextRequest) {
         .from('videos')
         .update({
           status: 'failed',
-          error_message: apiError instanceof Error ? apiError.message : 'API调用失败',
+          error_reason: apiError instanceof Error ? apiError.message : 'API调用失败',
         })
         .eq('id', videoId);
 
@@ -341,7 +343,7 @@ export async function POST(request: NextRequest) {
         await taskStateService.transitionTask(linkedWorkerTaskId, 'failed', {
           progress: 100,
           completed_at: new Date().toISOString(),
-          error_message: apiError instanceof Error ? apiError.message : 'API调用失败',
+          error_reason: apiError instanceof Error ? apiError.message : 'API调用失败',
           output_data: { video_id: videoId },
         });
         await taskStateService.appendEvent(linkedWorkerTaskId, decoded.userId, String(sessionId), 'video_generate_failed', {
@@ -432,7 +434,7 @@ export async function GET(request: NextRequest) {
               );
               console.log(`[Video] 视频已存储到 TOS: ${tosKey}`);
               await VideoStorageService.setPublicRead(tosKey);
-              
+
               // 如果有尾帧图片，也存储到 TOS
               if (seedanceTask.content.last_frame_url) {
                 try {
@@ -547,7 +549,7 @@ export async function GET(request: NextRequest) {
               .from('videos')
               .update({
                 status: 'failed',
-                error_message: seedanceTask.error?.message || '视频生成失败',
+                error_reason: seedanceTask.error?.message || '视频生成失败',
               })
               .eq('id', video.id);
             if (video.session_id) {
@@ -567,7 +569,7 @@ export async function GET(request: NextRequest) {
             }
 
             video.status = 'failed';
-            video.error_message = seedanceTask.error?.message;
+            video.error_reason = seedanceTask.error?.message;
           }
         } catch (pollError) {
           console.error('轮询 Seedance 任务失败:', pollError);

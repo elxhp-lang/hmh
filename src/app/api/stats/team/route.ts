@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     // 获取团队成员详情（仅 material_member 角色）
     const { data: members } = await client
       .from('users')
-      .select('user_id, username, email, created_at')
+      .select('id, username, email, created_at')
       .eq('role', 'material_member')
       .order('created_at', { ascending: false })
       .limit(20);
@@ -55,19 +55,20 @@ export async function GET(request: NextRequest) {
     // 获取每个成员的视频生成数量
     const memberStats = await Promise.all(
       (members || []).map(async (member) => {
+        const memberId = String(member.id);
         const { count: videoCount } = await client
           .from('videos')
           .select('*', { count: 'exact', head: true })
-          .eq('user_id', member.user_id);
+          .eq('user_id', memberId);
 
         const { count: processingCount } = await client
           .from('videos')
           .select('*', { count: 'exact', head: true })
-          .eq('user_id', member.user_id)
+          .eq('user_id', memberId)
           .eq('status', 'processing');
 
         return {
-          user_id: member.user_id,
+          user_id: memberId,
           username: member.username,
           email: member.email,
           created_at: member.created_at,

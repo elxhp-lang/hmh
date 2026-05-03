@@ -687,6 +687,7 @@ class CreativeWorkflowService {
     const learnedPreferences = workflow.learned_preferences as Record<string, unknown> || {};
     const hasAskedForProduct = learnedPreferences.asked_for_product === true;
     const confirmedProduct = learnedPreferences.confirmed_product as string;
+    const productAskCount = (learnedPreferences as Record<string, unknown>).product_ask_count as number || 0;
 
     // 如果没有识别到商品且还没有询问过，主动询问（仅在无视频参考时）
     if (!hasVideoReferences && foundProducts.length === 0 && !hasAskedForProduct && message.length > 10) {
@@ -694,7 +695,7 @@ class CreativeWorkflowService {
       await client
         .from('creative_workflows')
         .update({
-          learned_preferences: { ...learnedPreferences, asked_for_product: true },
+          learned_preferences: { ...learnedPreferences, asked_for_product: true, product_ask_count: 1 },
           updated_at: new Date().toISOString(),
         })
         .eq('id', workflow.id);
@@ -731,27 +732,40 @@ class CreativeWorkflowService {
 
     // 如果已询问过商品但用户还没有确认商品，继续引导（仅在无视频参考时）
     if (!hasVideoReferences && hasAskedForProduct && !confirmedProduct && foundProducts.length === 0 && message.length > 5) {
-      // 检查用户回复是否是在说明商品
-      const products = await productLibraryService.getProducts(workflow.user_id, { limit: 10 });
-      const productNames = products.map(p => p.product_name.toLowerCase());
-      const lowerMessage = message.toLowerCase();
-      
-      // 检查用户消息中是否提到了商品名
-      const mentionedProduct = productNames.find(name => lowerMessage.includes(name));
-      
-      if (mentionedProduct) {
-        // 用户提到了商品，确认并继续
-        await client
-          .from('creative_workflows')
-          .update({
-            learned_preferences: { ...learnedPreferences, confirmed_product: mentionedProduct },
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', workflow.id);
+      // 超过3次询问仍未确认，放弃追问直接往下走
+      if (productAskCount >= 3) {
+        console.log('[Workflow] 商品确认已达上限，跳过追问');
+        // 不阻塞，让后续逻辑继续处理
       } else {
-        // 用户没有明确商品，再次询问
-        let response = '好的，我理解您的需求。但为了生成更精准的商品视频，请您确认：\n\n';
-        response += '**您想为哪款商品制作视频？**\n\n';
+        // 检查用户回复是否是在说明商品
+        const products = await productLibraryService.getProducts(workflow.user_id, { limit: 10 });
+        const productNames = products.map(p => p.product_name.toLowerCase());
+        const lowerMessage = message.toLowerCase();
+
+        // 检查用户消息中是否提到了商品名
+        const mentionedProduct = productNames.find(name => lowerMessage.includes(name));
+
+        if (mentionedProduct) {
+          // 用户提到了商品，确认并继续
+          await client
+            .from('creative_workflows')
+            .update({
+              learned_preferences: { ...learnedPreferences, confirmed_product: mentionedProduct },
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', workflow.id);
+        } else {
+          // 用户没有明确商品，再次询问（计数+1）
+          const nextCount = productAskCount + 1;
+          await client
+            .from('creative_workflows')
+            .update({
+              learned_preferences: { ...learnedPreferences, product_ask_count: nextCount },
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', workflow.id);
+          let response = '好的，我理解您的需求。但为了生成更精准的商品视频，请您确认：\n\n';
+          response += '**您想为哪款商品制作视频？**\n\n';
         if (productNames.length > 0) {
           response += '商品库中的商品：' + products.map(p => p.product_name).join('、') + '\n';
         }
@@ -763,6 +777,7 @@ class CreativeWorkflowService {
           stage: 'input_collecting',
           requiresAction: false,
         };
+      }
       }
     }
 

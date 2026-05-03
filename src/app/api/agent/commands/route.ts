@@ -304,7 +304,7 @@ async function getFinancialOverview() {
   const { data: todayStats } = await client
     .from('daily_stats')
     .select('*')
-    .eq('date', today)
+    .eq('stat_date', today)
     .single();
   
   // 获取账单统计

@@ -346,7 +346,13 @@ class QueryBuilderImpl<T extends Record<string, unknown> = Record<string, unknow
           count,
         };
       },
-      (error) => ({ data: null, error: error as Error, count: 0 })
+      (error) => {
+        // 非 SELECT 查询失败通常意味着 schema 不一致（列名错误、类型不匹配等）
+        if (this.queryType !== 'select') {
+          console.warn(`[DB] ${this.queryType.toUpperCase()} on "${this.tableName}" failed:`, (error as Error).message);
+        }
+        return { data: null, error: error as Error, count: 0 };
+      }
     ).then(onfulfilled, onrejected);
   }
 

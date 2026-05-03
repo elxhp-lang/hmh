@@ -124,16 +124,13 @@ export class VideoGenerationPoller {
     // fallback: reverse lookup from task_events.external_task_ids when input_data.video_id missing
     const { data: videoData } = await this.supabase
       .from('videos')
-      .select('task_id,seedance_task_id')
+      .select('task_id')
       .eq('id', videoId)
       .single();
     const seedanceTaskId =
-      (videoData && typeof (videoData as Record<string, unknown>).task_id === 'string'
+      videoData && typeof (videoData as Record<string, unknown>).task_id === 'string'
         ? ((videoData as Record<string, unknown>).task_id as string)
-        : '') ||
-      (videoData && typeof (videoData as Record<string, unknown>).seedance_task_id === 'string'
-        ? ((videoData as Record<string, unknown>).seedance_task_id as string)
-        : '');
+        : '';
     if (!seedanceTaskId) return null;
 
     const { data: eventRow } = await this.supabase
@@ -229,11 +226,12 @@ export class VideoGenerationPoller {
       
       // 标记为失败
       try {
+        const cols = await this.getVideosColumnCache();
         await this.supabase
           .from('videos')
-          .update({ 
-            status: 'failed', 
-            error_message: '缺少 task_id，无法查询任务状态' 
+          .update({
+            status: 'failed',
+            [cols.error_reason ? 'error_reason' : 'error_message']: '缺少 task_id，无法查询任务状态',
           })
           .eq('id', videoId);
         console.log(`[VideoPoller] 视频 ${videoId} 已标记为失败`);
@@ -376,11 +374,13 @@ export class VideoGenerationPoller {
     const columns = await this.getVideosColumnCache();
     const updatePayload: Record<string, unknown> = {
       status: 'failed',
-      error_message: errorReason,
       updated_at: new Date().toISOString(),
     };
+    // 根据实际列名写入 — 优先 error_reason（新），fallback 到 error_message（旧）
     if (columns.error_reason) {
       updatePayload.error_reason = errorReason;
+    } else {
+      updatePayload.error_message = errorReason;
     }
     const { error: updateError } = await this.supabase
       .from('videos')
@@ -489,53 +489,12 @@ export class VideoGenerationPoller {
   private async notifyCallback(
     videoId: string,
     status: string,
-    publicVideoUrl?: string,
-    errorReason?: string
+    _publicVideoUrl?: string,
+    _errorReason?: string
   ) {
-    try {
-      console.log(`[VideoPoller] 调用回调 API: ${videoId}, status=${status}`);
-
-      // 1. 先从数据库查询 video_name 和 user_id
-      const { data: videoData, error: queryError } = await this.supabase
-        .from('videos')
-        .select('video_name, user_id')
-        .eq('id', videoId)
-        .single();
-
-      if (queryError || !videoData) {
-        console.error('[VideoPoller] 查询视频信息失败:', queryError);
-        return;
-      }
-
-      // 2. 构建通知内容（给创意小海的系统消息）
-      const notificationMessage = `【系统通知】视频生成任务完成！
-
-video_id: ${videoId}
-video_name: ${videoData.video_name || '未命名'}
-status: ${status}
-${publicVideoUrl ? `public_video_url: ${publicVideoUrl}` : ''}
-${errorReason ? `error_reason: ${errorReason}` : ''}
-user_id: ${videoData.user_id}
-
-请根据状态决定是否通知用户。`;
-
-      console.log(`[VideoPoller] 通知内容:`, notificationMessage);
-
-      // 3. TODO: 直接调用创意小海的 API，把这个通知作为系统消息发给小海
-      // 暂时先记录日志，后续完善
-      console.log(`[VideoPoller] 回调通知:`, { 
-        videoId, 
-        videoName: videoData.video_name,
-        status, 
-        publicVideoUrl, 
-        errorReason,
-        userId: videoData.user_id 
-      });
-
-    } catch (error) {
-      console.error('[VideoPoller] 调用回调 API 失败:', error);
-      // 不影响主流程
-    }
+    // 通知已通过 sendUserNotification 写入 user_notifications 表
+    // 创意小海侧通过轮询 /api/notifications 获取通知
+    console.log(`[VideoPoller] 回调: ${videoId}, status=${status}`);
   }
 }
 

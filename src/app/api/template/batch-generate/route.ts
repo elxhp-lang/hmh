@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabaseClient();
 
     const body = await request.json();
-    const { template_id, data_rows, first_frame_url, session_id } = body;
+    const { template_id, data_rows, first_frame_url, session_id, reference_video, reference_images, reference_audio } = body;
 
     if (!template_id || !data_rows || !Array.isArray(data_rows)) {
       return NextResponse.json({ error: '参数错误' }, { status: 400 });
@@ -115,25 +115,32 @@ export async function POST(request: NextRequest) {
 
       try {
         const videoId = uuidv4();
-        // 调用 Seedance 生成视频
-        let videoResult;
+        // 构建 Seedance content 数组，包含参考素材
+        const content: Array<{ type: string; [key: string]: unknown }> = [];
         if (first_frame_url) {
-          // 有首帧图：使用图生视频
-          videoResult = await seedanceClient.imageToVideo(first_frame_url, result.prompt, {
-            model: 'doubao-seedance-2-0-260128',
-            duration: template.duration,
-            ratio: normalizeVideoRatio(template.aspect_ratio),
-          });
-        } else {
-          // 无首帧图：使用文生视频
-          videoResult = await seedanceClient.textToVideo(result.prompt, {
-            model: 'doubao-seedance-2-0-260128',
-            duration: template.duration,
-            ratio: normalizeVideoRatio(template.aspect_ratio),
-          });
+          content.push({ type: 'image_url', image_url: { url: first_frame_url }, role: 'first_frame' });
         }
+        if (Array.isArray(reference_images)) {
+          for (const url of reference_images) {
+            if (url) content.push({ type: 'image_url', image_url: { url }, role: 'reference_image' });
+          }
+        }
+        if (reference_video) {
+          content.push({ type: 'video_url', video_url: { url: reference_video }, role: 'reference_video' });
+        }
+        if (reference_audio) {
+          content.push({ type: 'audio_url', audio_url: { url: reference_audio }, role: 'reference_audio' });
+        }
+        content.push({ type: 'text', text: result.prompt });
 
-        // videoResult 是 GetTaskResponse
+        const videoResult = await seedanceClient.createTask({
+          model: 'doubao-seedance-2-0-260128',
+          content: content as never,
+          duration: template.duration,
+          ratio: normalizeVideoRatio(template.aspect_ratio),
+        });
+
+        // videoResult 是 CreateTaskResponse
         if (videoResult.id) {
           await supabase.from('videos').insert({
             id: videoId,
@@ -147,7 +154,6 @@ export async function POST(request: NextRequest) {
             duration: template.duration,
             model: 'doubao-seedance-2-0-260128',
             tags: ['batch_generate', `template:${template_id}`],
-            video_name: `批量视频 ${rowIndex + 1}`,
           });
           await taskStateService.appendTaskItem({
             taskId: parentTask.id,

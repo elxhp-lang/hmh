@@ -685,7 +685,7 @@ export class FinanceToolExecutor {
     const { data: bills } = await this.supabase
       .from('billing')
       .select('amount, created_at')
-      .gte('created_at', new Date(new Date().setDate(1)).toISOString());
+      .gte('created_at', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString());
     
     const totalSpend = bills?.reduce((sum, b) => sum + formatAmount(b.amount), 0) || 0;
     

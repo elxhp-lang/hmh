@@ -5,35 +5,38 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getSupabaseClient } from '@/storage/database/supabase-client';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { video_id, status, public_video_url, error_reason } = body;
+    const { video_id, status, public_video_url, error_reason, user_id, video_name } = body;
 
-    console.log('[VideoCallback] 收到回调:', { video_id, status, public_video_url, error_reason });
+    console.log('[VideoCallback] 收到回调:', { video_id, status, user_id });
 
-    // 验证必要参数
     if (!video_id || !status) {
-      return NextResponse.json(
-        { error: '缺少必要参数: video_id 和 status' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: '缺少必要参数: video_id 和 status' }, { status: 400 });
     }
 
-    // 这里可以通过以下方式通知创意小海：
-    // 1. 写入一个通知表，创意小海轮询查询
-    // 2. 使用 WebSocket 实时推送
-    // 3. 其他机制
-
-    // 暂时只记录日志，后续可以扩展
-    // 可以在这里添加通知逻辑
-    // 例如：写入 notifications 表
-
-    console.log('[VideoCallback] 回调处理完成');
+    // 写入通知表，前端通知中心可轮询到
+    if (user_id) {
+      const client = getSupabaseClient();
+      const isCompleted = status === 'completed' || status === 'succeeded';
+      await client.from('user_notifications').insert({
+        user_id,
+        notification_type: isCompleted ? 'video_completed' : 'video_failed',
+        title: isCompleted ? '视频生成完成' : '视频生成失败',
+        content: isCompleted
+          ? `您的视频${video_name ? `「${video_name}」` : ''}已生成完成，可前往素材中心查看。`
+          : `视频生成失败：${error_reason || '未知原因'}`,
+        related_video_id: video_id,
+        related_video_name: video_name || null,
+        related_video_url: public_video_url || null,
+      });
+      console.log('[VideoCallback] 通知已写入');
+    }
 
     return NextResponse.json({ success: true });
-
   } catch (error) {
     console.error('[VideoCallback] 处理回调失败:', error);
     return NextResponse.json(

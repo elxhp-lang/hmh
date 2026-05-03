@@ -6,7 +6,7 @@
 
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { SeedanceClient } from './seedance-client';
-import type { VideoRatio } from './seedance-client';
+import type { Content, VideoRatio } from './seedance-client';
 import { VideoLearningService } from './video-learning-service';
 import { ScriptGeneratorService } from './script-generator-service';
 import { ScriptTemplateService } from './script-template-service';
@@ -593,6 +593,7 @@ export class AgentToolsService {
     duration?: number,
     options?: {
       reference_video?: string;      // 参考视频 URL（风格/动作参考）
+      reference_images?: string[];   // 参考图片 URL 列表（风格参考）
       reference_audio?: string;      // 参考音频 URL（背景音乐）
       aspect_ratio?: string;         // 视频比例
       model?: 'standard' | 'fast';  // 模型选择
@@ -625,18 +626,30 @@ export class AgentToolsService {
       let seedanceTaskId: string = '';
 
       // 根据参数选择调用方式
-      if (options?.reference_video) {
-        // ⭐ 核心功能：使用 reference_video 实现同风格生成
-        console.log('[submitVideoTask] 使用 reference_video 模式');
-        // 不等待完成，只获取 task_id
+      if (options?.reference_video || options?.reference_images?.length || options?.reference_audio) {
+        // ⭐ 核心功能：使用参考素材实现同风格生成
+        console.log('[submitVideoTask] 使用多模态参考模式');
+        const content: Content[] = [];
+        if (options.reference_images) {
+          for (const url of options.reference_images) {
+            if (url) content.push({ type: 'image_url', image_url: { url }, role: 'reference_image' });
+          }
+        }
+        if (options.reference_video) {
+          content.push({ type: 'video_url', video_url: { url: options.reference_video }, role: 'reference_video' });
+        }
+        if (options.reference_audio) {
+          content.push({ type: 'audio_url', audio_url: { url: options.reference_audio }, role: 'reference_audio' });
+        }
+        content.push({ type: 'text', text: prompt });
         const createResponse = await this.seedance.createTask({
           model: modelId,
-          content: [{ type: 'text', text: prompt }],
+          content,
           duration: taskDuration,
           ratio,
         });
         seedanceTaskId = createResponse.id;
-        console.log('[submitVideoTask] reference_video 模式获取到 seedanceTaskId:', seedanceTaskId);
+        console.log('[submitVideoTask] 多模态参考模式获取到 seedanceTaskId:', seedanceTaskId);
       } else if (firstFrameUrl) {
         // 图生视频模式 - 不等待完成
         const createResponse = await this.seedance.createTask({

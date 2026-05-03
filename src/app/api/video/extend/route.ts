@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
         .from('videos')
         .update({
           status: 'failed',
-          error_message: apiError instanceof Error ? apiError.message : 'API调用失败',
+          error_reason: apiError instanceof Error ? apiError.message : 'API调用失败',
         })
         .eq('id', videoTask!.id);
 

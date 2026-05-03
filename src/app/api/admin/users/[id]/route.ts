@@ -59,8 +59,8 @@ export async function PUT(
     // 记录操作日志
     await client.from('operation_logs').insert({
       user_id: decoded.userId,
-      operation_type: 'user_update',
-      operation_detail: { target_user_id: targetUserId, role, status },
+      action: 'user_update',
+      details: { target_user_id: targetUserId, role, status },
     });
 
     return NextResponse.json({ success: true });
@@ -174,8 +174,8 @@ export async function DELETE(
     // 记录操作日志
     await client.from('operation_logs').insert({
       user_id: decoded.userId,
-      operation_type: 'user_delete',
-      operation_detail: { deleted_user_id: targetUserId, deleted_username: user.username },
+      action: 'user_delete',
+      details: { deleted_user_id: targetUserId, deleted_username: user.username },
     });
 
     return NextResponse.json({ success: true, message: `用户 ${user.username} 已删除` });

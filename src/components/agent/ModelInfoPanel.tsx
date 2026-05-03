@@ -59,19 +59,7 @@ export function ModelInfoBadge() {
 
   const loadAbilityProfile = useCallback(async () => {
     if (!token) return;
-    
-    try {
-      const response = await fetch('/api/agent/ability?agent_type=creative_agent', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setProfile(data.profile);
-      }
-    } catch (error) {
-      console.error('加载能力档案失败:', error);
-    }
+    // /api/agent/ability 路由已废弃，功能待后续版本重新实现
   }, [token]);
 
   useEffect(() => {
