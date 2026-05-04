@@ -586,9 +586,13 @@ export async function POST(request: NextRequest) {
 
     // 加载用户画像摘要（隐式行为统计）
     if (userId) {
-      const profileSummary = await profileService.getProfileSummary(userId);
-      if (profileSummary) {
-        finalSystemPrompt += `\n\n${profileSummary}`;
+      try {
+        const profileSummary = await profileService.getProfileSummary(userId);
+        if (profileSummary) {
+          finalSystemPrompt += `\n\n${profileSummary}`;
+        }
+      } catch {
+        // user_profiles 表可能尚未创建，静默降级
       }
     }
 
