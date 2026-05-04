@@ -59,6 +59,16 @@ function checkRateLimit(userId: string): { allowed: boolean; retryAfterSeconds: 
 
 // ========== 双笔记本系统：辅助函数 ==========
 
+/** 清洗模型原始输出：移除工具调用标记、多余空白 */
+function cleanMessageContent(raw: string): string {
+  return raw
+    .replace(/<\|FunctionCallBegin\|>[\s\S]*?<\|FunctionCallEnd\|>/g, '')
+    .replace(/<\|FunctionCallBegin\|>/g, '')
+    .replace(/<\|FunctionCallEnd\|>/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 async function saveConversationMessage(
   userId: string,
   sessionId: string,
@@ -96,8 +106,9 @@ async function saveConversationMessage(
       })
       .eq('id', sessionId)
       .eq('user_id', userId);
-    console.log(`💾 [笔记本1号] 已保存 ${role} 消息`);
-    return (inserted as { id?: string } | null)?.id || null;
+    const savedId = (inserted as { id?: string } | null)?.id || null;
+    console.log(`💾 [笔记本1号] 已保存 ${role} 消息: id=${savedId}, len=${content.length}`);
+    return savedId;
   } catch (error) {
     console.error('❌ [笔记本1号] 保存消息失败:', error);
     return null;
@@ -112,14 +123,19 @@ async function updateConversationMessageParts(
   if (!messageId || !Array.isArray(parts) || parts.length === 0) return;
   try {
     const supabase = getSupabaseClient();
-    await supabase
+    const { error } = await supabase
       .from('agent_conversation_messages')
       .update({ parts })
       .eq('id', messageId)
       .eq('user_id', userId)
       .eq('role', 'assistant');
+    if (error) {
+      console.error(`❌ [笔记本1号] parts 回写失败: messageId=${messageId}, error=${error.message}`);
+    } else {
+      console.log(`✅ [笔记本1号] parts 回写成功: messageId=${messageId}, count=${parts.length}, types=${parts.map(p => p.type).join(',')}`);
+    }
   } catch (error) {
-    console.error('❌ [笔记本1号] 回写消息 parts 失败:', error);
+    console.error('❌ [笔记本1号] 回写消息 parts 异常:', error);
   }
 }
 
@@ -759,9 +775,15 @@ export async function POST(request: NextRequest) {
             }
 
             // ========== 笔记本1号：保存AI回复 ==========
+            const cleanedAssistantMessage = cleanMessageContent(assistantMessage);
             const assistantMessageId = userId
-              ? await saveConversationMessage(userId, session!.id, 'assistant', assistantMessage)
+              ? await saveConversationMessage(userId, session!.id, 'assistant', cleanedAssistantMessage)
               : null;
+            if (assistantMessageId) {
+              console.log(`💾 [笔记本1号] assistant 消息已保存: ${assistantMessageId}, 原始长度=${assistantMessage.length}, 清洗后=${cleanedAssistantMessage.length}`);
+            } else {
+              console.error('❌ [笔记本1号] assistant 消息保存失败，parts 将无法回写');
+            }
             const iterationParts: MessagePart[] = [];
             const emitPart = (part: MessagePart, source: string) => {
               iterationParts.push(part);
@@ -770,6 +792,8 @@ export async function POST(request: NextRequest) {
             const persistAssistantParts = async () => {
               if (assistantMessageId && userId && iterationParts.length > 0) {
                 await updateConversationMessageParts(assistantMessageId, userId, iterationParts);
+              } else {
+                console.log(`📝 [笔记本1号] persistAssistantParts 跳过: hasId=${!!assistantMessageId}, hasUser=${!!userId}, partsLen=${iterationParts.length}`);
               }
               if (workerTaskId && userId && session?.id) {
                 await taskStateService.saveOutput(workerTaskId, userId, session.id, assistantMessageId, assistantMessage, iterationParts);
@@ -809,7 +833,7 @@ export async function POST(request: NextRequest) {
               for (const part of mediaParts) {
                 emitPart(part, 'url_extractor');
               }
-              sendEvent({ type: 'text', content: assistantMessage });
+              sendEvent({ type: 'text', content: cleanMessageContent(assistantMessage) });
               const memoryCandidate = memoryPromptOptOut ? null : extractMemoryCandidate(userMessageContent);
               if (memoryCandidate && !memoryPromptOptOut) {
                 sendEvent({ type: 'memory_candidate', data: memoryCandidate });
@@ -1150,7 +1174,7 @@ export async function POST(request: NextRequest) {
               for (const part of mediaParts) {
                 emitPart(part, 'url_extractor');
               }
-              sendEvent({ type: 'text', content: parsed.content || assistantMessage });
+              sendEvent({ type: 'text', content: parsed.content || cleanMessageContent(assistantMessage) });
               
               // 检查是否应该结束
               if (iterations >= 3 && parsed.type === 'text') {
@@ -1171,7 +1195,7 @@ export async function POST(request: NextRequest) {
             }
 
             // 未知格式，发送原始文本
-            sendEvent({ type: 'text', content: assistantMessage });
+            sendEvent({ type: 'text', content: cleanMessageContent(assistantMessage) });
             await persistAssistantParts();
             if (workerTaskId && userId && session?.id) {
               await taskStateService.transitionTask(workerTaskId, 'succeeded', {
