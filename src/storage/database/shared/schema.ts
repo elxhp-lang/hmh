@@ -43,13 +43,13 @@ export const videos = pgTable(
     user_id: varchar("user_id", { length: 36 }).notNull().references(() => users.id, { onDelete: "cascade" }),
     session_id: uuid("session_id").references(() => agentSessions.id, { onDelete: "set null" }),
     prompt: text("prompt").notNull(), // 视频生成提示词
-    video_name: varchar("video_name", { length: 200 }), // 创意小海写的视频名称（用于多任务对应）
+    video_name: varchar("video_name", { length: 200 }), // 视频名称（用于多任务区分和通知展示）
     script: text("script"), // 视频脚本
     copywriting: text("copywriting"), // 视频配文
-    tags: jsonb("tags").$type<string[]>(), // 视频标签数组
-    tag_source: varchar("tag_source", { length: 20 }).default('manual'), // auto, manual, mixed
-    auto_tag_status: varchar("auto_tag_status", { length: 20 }).default('pending'), // pending, success, failed
-    category: varchar("category", { length: 50 }), // 视频分类（开箱/测评/参数科普/热点解读）
+    tags: text("tags").array().$type<string[]>(), // 视频标签数组（text[]）
+    tag_source: text("tag_source").default('manual'), // auto, manual, mixed
+    auto_tag_status: text("auto_tag_status").default('pending'), // pending, success, failed
+    category: text("category"), // 视频分类（开箱/测评/参数科普/热点解读）
     task_type: varchar("task_type", { length: 20 }).notNull().default('generate'), // generate, edit, extend
     model: varchar("model", { length: 50 }).notNull().default('doubao-seedance-2-0-260128'),
     reference_images: jsonb("reference_images").$type<string[]>(),
@@ -58,27 +58,30 @@ export const videos = pgTable(
     first_frame: varchar("first_frame", { length: 500 }),
     last_frame: varchar("last_frame", { length: 500 }),
     ratio: varchar("ratio", { length: 10 }).notNull().default('16:9'), // 16:9, 9:16, 1:1, 4:3, 3:4, 21:9, adaptive
-    duration: integer("duration").notNull().default(5), // 秒 (4-15)
+    duration: integer("duration").notNull().default(11), // 秒 (4-15) — 与线上默认值一致
     generate_audio: boolean("generate_audio").default(true),
     watermark: boolean("watermark").default(false),
     web_search: boolean("web_search").default(false),
-    source_video_id: varchar("source_video_id", { length: 36 }),
-    source_task_id: varchar("source_task_id", { length: 100 }),
+    source_video_id: text("source_video_id"),
+    source_task_id: text("source_task_id"),
     is_remix: boolean("is_remix").notNull().default(false),
     status: varchar("status", { length: 20 }).notNull().default('pending'), // pending, processing, completed, failed
     task_id: varchar("task_id", { length: 100 }), // Seedance 返回的任务 ID（用于查询进度）
     result_url: varchar("result_url", { length: 500 }), // 生成视频临时 URL（火山引擎返回）
     tos_key: varchar("tos_key", { length: 500 }), // TOS 存储的 key（持久化）
-    public_video_url: varchar("public_video_url", { length: 500 }), // 公开永久 URL（播放、学习、下载都用它）
+    public_video_url: text("public_video_url"), // 公开永久 URL（播放、学习、下载都用它）
     audio_url: varchar("audio_url", { length: 500 }), // 生成音频 URL
-    audio_tos_key: varchar("audio_tos_key", { length: 500 }), // 音频 TOS 存储的 key
     cover_url: varchar("cover_url", { length: 500 }), // 视频封面 URL
-    cover_tos_key: varchar("cover_tos_key", { length: 500 }), // 封面 TOS 存储的 key
-    last_frame_url: varchar("last_frame_url", { length: 500 }), // 尾帧图片 URL
+    last_frame_url: text("last_frame_url"), // 尾帧图片 URL
     last_frame_tos_key: varchar("last_frame_tos_key", { length: 500 }), // 尾帧 TOS 存储的 key
     cost: numeric("cost", { precision: 10, scale: 2 }), // 费用 USDC
     error_message: text("error_message"), // 生成失败原因
     error_reason: text("error_reason"), // 生成失败原因（新）
+    total_tokens: integer("total_tokens").default(0),
+    input_tokens: integer("input_tokens").default(0),
+    output_tokens: integer("output_tokens").default(0),
+    cost_numeric: numeric("cost_numeric", { precision: 10, scale: 2 }),
+    cost_real: numeric("cost_real", { precision: 10, scale: 2 }),
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updated_at: timestamp("updated_at", { withTimezone: true }),
   },
@@ -122,6 +125,7 @@ export const billing = pgTable(
     video_id: varchar("video_id", { length: 36 }).references(() => videos.id, { onDelete: "set null" }),
     amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
     task_type: varchar("task_type", { length: 50 }).notNull(), // video_generation, etc.
+    token_amount: integer("token_amount").default(0), // Token 消耗量
     description: text("description"),
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -501,3 +505,67 @@ export const userNotifications = pgTable(
 
 // ========== Types 补充 ==========
 export type UserNotification = typeof userNotifications.$inferSelect;
+
+// ========== 财务智能体记忆表 ==========
+export const financeMemories = pgTable(
+  "finance_memories",
+  {
+    id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+    user_id: varchar("user_id", { length: 36 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+    memory_key: varchar("memory_key", { length: 255 }).notNull(),
+    memory_value: text("memory_value").notNull(),
+    category: varchar("category", { length: 50 }).default('custom'),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("idx_finance_memories_user").on(table.user_id),
+    index("idx_finance_memories_key").on(table.memory_key),
+    index("idx_finance_memories_category").on(table.category),
+  ]
+);
+
+// ========== 财务智能体定时任务表 ==========
+export const financeScheduledTasks = pgTable(
+  "finance_scheduled_tasks",
+  {
+    id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+    user_id: varchar("user_id", { length: 36 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+    task_name: varchar("task_name", { length: 255 }).notNull(),
+    task_type: varchar("task_type", { length: 50 }).notNull(), // balance_check, cost_report, budget_alert, custom
+    cron_expression: varchar("cron_expression", { length: 50 }),
+    params: text("params"), // JSON string
+    next_run_at: timestamp("next_run_at", { withTimezone: true }),
+    last_run_at: timestamp("last_run_at", { withTimezone: true }),
+    status: varchar("status", { length: 20 }).notNull().default('active'), // active, paused, deleted
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("idx_finance_tasks_user").on(table.user_id),
+    index("idx_finance_tasks_type").on(table.task_type),
+    index("idx_finance_tasks_status").on(table.status),
+    index("idx_finance_tasks_next_run").on(table.next_run_at),
+  ]
+);
+
+// ========== 财务智能体对话消息表 ==========
+export const financeConversationMessages = pgTable(
+  "finance_conversation_messages",
+  {
+    id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+    user_id: varchar("user_id", { length: 36 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+    role: varchar("role", { length: 20 }).notNull(), // user, assistant
+    content: text("content").notNull(),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_finance_conv_user").on(table.user_id),
+    index("idx_finance_conv_created").on(table.created_at),
+  ]
+);
+
+// ========== Types 补充 ==========
+export type FinanceMemory = typeof financeMemories.$inferSelect;
+export type FinanceScheduledTask = typeof financeScheduledTasks.$inferSelect;
+export type FinanceConversationMessage = typeof financeConversationMessages.$inferSelect;

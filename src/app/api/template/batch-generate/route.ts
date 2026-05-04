@@ -142,12 +142,21 @@ export async function POST(request: NextRequest) {
 
         // videoResult 是 CreateTaskResponse
         if (videoResult.id) {
+          // 构建视频名称：模板名 + 序号 + 首变量值，确保批量生成时每个视频可辨识
+          const templateName = template.template_name || '批量生成';
+          const rowData = data_rows[rowIndex] as Record<string, string> | undefined;
+          const firstVarValue = rowData ? Object.values(rowData)[0] || '' : '';
+          const videoName = firstVarValue
+            ? `${templateName} #${rowIndex + 1} - ${firstVarValue}`
+            : `${templateName} #${rowIndex + 1}`;
+
           await supabase.from('videos').insert({
             id: videoId,
             task_id: videoResult.id,
             user_id: userId,
             session_id: activeSessionId,
             prompt: result.prompt,
+            video_name: videoName,
             task_type: first_frame_url ? 'image_to_video' : 'text_to_video',
             status: 'processing',
             ratio: template.aspect_ratio,

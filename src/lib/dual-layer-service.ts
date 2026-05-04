@@ -12,7 +12,7 @@
 import { LLMClient, Config, KnowledgeClient } from 'coze-coding-dev-sdk';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { createVideoLearningService } from './video-learning-service';
-import type { AbilityLevel } from './agent-ability-service';
+type AbilityLevel = 'novice' | 'apprentice' | 'skilled' | 'expert' | 'master';
 
 // ========== 类型定义 ==========
 

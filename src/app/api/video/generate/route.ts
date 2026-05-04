@@ -403,20 +403,24 @@ export async function GET(request: NextRequest) {
           if (seedanceTask.status === 'succeeded' && seedanceTask.content?.video_url) {
             console.log(`[Video] 任务 ${video.id} 完成，开始存储到 TOS...`);
             
-            // 获取 Token 用量（注意：API 可能只返回 total_tokens）
+            // 获取 Token 用量，拆分 input/output
             const totalTokens = seedanceTask.usage?.total_tokens || 0;
-            
+            const outputTokens = seedanceTask.usage?.completion_tokens || 0;
+            const inputTokens = Math.max(0, totalTokens - outputTokens);
+
             // 根据是否有视频输入决定价格
             // task_type 为 edit/extend 时有视频输入（28元/百万tokens），否则为纯生成（46元/百万tokens）
             const hasVideoInput = video.task_type === 'edit' || video.task_type === 'extend';
             const unitPrice = hasVideoInput ? 28 : 46; // 元/百万tokens
-            
-            // 计算真实成本
-            const cost = totalTokens > 0 
+
+            // 理论费用（按价格表计算）
+            const costNumeric = totalTokens > 0
               ? Math.round((totalTokens / 1_000_000) * unitPrice * 100) / 100
               : (video.duration || 5) * 0.1; // 如果没有 token 数据，使用估算
+            // 实际费用（当前用理论值，生产环境可从账单 API 拉取后回填）
+            const costReal = costNumeric;
             
-            console.log(`[Video] Token 用量: ${totalTokens}, 单价: ${unitPrice}元/百万tokens, 成本: ${cost}元`);
+            console.log(`[Video] Token: ${totalTokens} (in:${inputTokens} out:${outputTokens}), 单价: ${unitPrice}元/百万tokens, 理论费: ${costNumeric}元, 实际费: ${costReal}元`);
             
             // 存储视频到 TOS
             let tosKey: string | null = null;
@@ -468,8 +472,12 @@ export async function GET(request: NextRequest) {
                 tos_key: tosKey,
                 last_frame_url: seedanceTask.content.last_frame_url,
                 last_frame_tos_key: lastFrameTosKey,
-                cost,
+                cost: costNumeric,
                 total_tokens: totalTokens,
+                input_tokens: inputTokens,
+                output_tokens: outputTokens,
+                cost_numeric: costNumeric,
+                cost_real: costReal,
               })
               .eq('id', video.id);
             if (video.session_id) {
@@ -533,7 +541,7 @@ export async function GET(request: NextRequest) {
             await supabase.from('billing').insert({
               user_id: decoded.userId,
               video_id: video.id,
-              amount: cost,
+              amount: costNumeric,
               token_amount: totalTokens,
               task_type: 'video_generation',
               description: `视频生成 - ${video.duration}秒 - ${video.ratio} - ${totalTokens.toLocaleString()} tokens`,
@@ -543,7 +551,7 @@ export async function GET(request: NextRequest) {
             video.public_video_url = publicVideoUrl;
             video.result_url = publicVideoUrl;
             video.tos_key = tosKey;
-            video.cost = cost;
+            video.cost = costNumeric;
           } else if (seedanceTask.status === 'failed') {
             await supabase
               .from('videos')

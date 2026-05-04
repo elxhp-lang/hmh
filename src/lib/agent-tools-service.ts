@@ -692,6 +692,7 @@ export class AgentToolsService {
         user_id: userId,
         session_id: this.currentSessionId,
         prompt,
+        video_name: options?.video_name || null,
         task_type: options?.reference_video ? 'multi_modal' : (firstFrameUrl ? 'image_to_video' : 'text_to_video'),
         status: 'processing',
         ratio,
