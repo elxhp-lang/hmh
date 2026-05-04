@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { registerAuthExpiredHandler } from '@/lib/api';
 
 interface User {
   user_id: string;
@@ -33,6 +34,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // 注册全局Token过期处理器
+    registerAuthExpiredHandler(() => {
+      setToken(null);
+      setUser(null);
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
+    });
+
     // 从 localStorage 恢复登录状态
     if (typeof window !== 'undefined') {
       const savedToken = localStorage.getItem(TOKEN_KEY);

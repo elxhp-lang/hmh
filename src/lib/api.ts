@@ -3,6 +3,44 @@ import { parseSSEPayload, SSEEvent, SSEEventType } from '@/lib/agent-sse';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
+// ========== 全局 401 拦截：Token过期自动登出 ==========
+let onAuthExpiredHandler: (() => void) | null = null;
+
+/** 注册Token过期回调（由AuthProvider调用） */
+export function registerAuthExpiredHandler(handler: () => void): void {
+  onAuthExpiredHandler = handler;
+}
+
+/** 触发Token过期处理：清localStorage + 跳登录页 */
+function handleAuthExpired(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem('haimeng_token');
+  localStorage.removeItem('haimeng_user');
+  onAuthExpiredHandler?.();
+  // 兜底：如果回调未注册（SSR/初始化时序问题），直接跳转
+  if (!onAuthExpiredHandler && window.location.pathname !== '/login') {
+    window.location.href = '/login';
+  }
+}
+
+/** 检查响应：401时自动登出，返回已读取的body供后续使用 */
+async function interceptAuthResponse(response: Response): Promise<{ body: unknown; handled: boolean }> {
+  if (response.status === 401) {
+    const body = await response.json().catch(() => ({}));
+    const msg = typeof (body as Record<string, unknown>).error === 'string' ? (body as Record<string, unknown>).error as string : '';
+    if (msg.includes('expired') || msg.includes('过期') || msg.includes('无效') || msg.includes('invalid') || msg.includes('Token')) {
+      handleAuthExpired();
+      return { body, handled: true };
+    }
+    return { body, handled: false };
+  }
+  if (response.status === 403) {
+    const body = await response.json().catch(() => ({}));
+    return { body, handled: false };
+  }
+  return { body: null, handled: false };
+}
+
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   body?: unknown;
@@ -42,13 +80,16 @@ export async function apiRequest<T>(endpoint: string, options: RequestOptions = 
     body: isFormData ? body as FormData : (body ? JSON.stringify(body) : undefined),
   });
 
-  const data = await response.json();
+  const { body: preReadBody, handled: authExpired } = await interceptAuthResponse(response);
+  if (authExpired) throw new ApiError('Token已过期，请重新登录', 401);
+
+  const data = preReadBody ?? (await response.json());
 
   if (!response.ok) {
-    throw new ApiError(data.error || '请求失败', response.status, data);
+    throw new ApiError(typeof data === 'object' && data && 'error' in data ? (data as Record<string, unknown>).error as string : '请求失败', response.status, data);
   }
 
-  return data;
+  return data as T;
 }
 
 // 文件上传
@@ -66,10 +107,13 @@ export async function uploadFile(
     body: formData,
   });
 
-  const data = await response.json();
+  const { body: preReadBody, handled: authExpired } = await interceptAuthResponse(response);
+  if (authExpired) throw new ApiError('Token已过期，请重新登录', 401);
+
+  const data = preReadBody ?? (await response.json());
 
   if (!response.ok) {
-    throw new ApiError(data.error || '上传失败', response.status, data);
+    throw new ApiError(typeof data === 'object' && data && 'error' in data ? (data as Record<string, unknown>).error as string : '上传失败', response.status, data);
   }
 
   return data;
@@ -96,9 +140,11 @@ export async function streamRequest(
       body: JSON.stringify(body),
     });
 
+    const { body: preReadBody, handled: authExpired } = await interceptAuthResponse(response);
+    if (authExpired) throw new ApiError('Token已过期，请重新登录', 401);
     if (!response.ok) {
-      const data = await response.json();
-      throw new ApiError(data.error || '请求失败', response.status, data);
+      const data = preReadBody;
+      throw new ApiError(typeof data === 'object' && data && 'error' in data ? (data as Record<string, unknown>).error as string : '请求失败', response.status, data);
     }
 
     const reader = response.body?.getReader();
@@ -177,9 +223,11 @@ export async function streamAgentRequest(
       signal,
     });
 
+    const { body: preReadBody, handled: authExpired } = await interceptAuthResponse(response);
+    if (authExpired) throw new ApiError('Token已过期，请重新登录', 401);
     if (!response.ok) {
-      const data = await response.json();
-      throw new ApiError(data.error || '请求失败', response.status, data);
+      const data = preReadBody;
+      throw new ApiError(typeof data === 'object' && data && 'error' in data ? (data as Record<string, unknown>).error as string : '请求失败', response.status, data);
     }
 
     const reader = response.body?.getReader();
