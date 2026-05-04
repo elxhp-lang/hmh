@@ -2,11 +2,13 @@
 
 import React, { useMemo } from 'react';
 import NextImage from 'next/image';
-import type { MessagePart } from '@/lib/agent-sse';
+import type { MessagePart, CardAction } from '@/lib/agent-sse';
+import { CardRenderer } from '@/components/agent/ActionCards';
 
 interface RichMessageContentProps {
   content: string;
   parts?: MessagePart[];
+  onCardAction?: (action: CardAction) => void;
 }
 
 type MediaLink = {
@@ -81,7 +83,7 @@ function tryParseCodeBlock(block: string): CodeBlock | null {
   };
 }
 
-export function RichMessageContent({ content, parts = [] }: RichMessageContentProps) {
+export function RichMessageContent({ content, parts = [], onCardAction }: RichMessageContentProps) {
   const { links, blocks } = useMemo(() => {
     const collectedLinks = collectMediaLinks(content);
     const cleaned = removeUrls(content, collectedLinks);
@@ -145,6 +147,21 @@ export function RichMessageContent({ content, parts = [] }: RichMessageContentPr
         if (part.type === 'card') {
           const cardData = part.data || {};
           const dataRecord = cardData as Record<string, unknown>;
+
+          // 新卡片类型：用 CardRenderer 渲染（含行动按钮）
+          const newCardTypes = ['script', 'script_options', 'first_frame', 'image_generated', 'video_result', 'task_done', 'task_progress', 'task_submitted'];
+          if (newCardTypes.includes(part.cardType)) {
+            return (
+              <CardRenderer
+                key={`part_card_${pIdx}`}
+                cardType={part.cardType}
+                data={dataRecord}
+                actions={part.actions}
+                onAction={onCardAction}
+              />
+            );
+          }
+
           if (part.cardType === 'video_analysis') {
             return (
               <div key={`part_card_${pIdx}`} className="rounded-lg border bg-background/60 px-3 py-2 text-xs space-y-1">

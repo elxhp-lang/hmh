@@ -209,6 +209,7 @@ export const agentSessions = pgTable(
     status: varchar("status", { length: 20 }).notNull().default('active'), // active, archived
     message_count: integer("message_count").default(0),
     last_message_at: timestamp("last_message_at", { withTimezone: true }),
+    reviewed_at: timestamp("reviewed_at", { withTimezone: true }),
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updated_at: timestamp("updated_at", { withTimezone: true }),
   },
@@ -217,6 +218,7 @@ export const agentSessions = pgTable(
     index("agent_sessions_agent_type_idx").on(table.agent_type),
     index("agent_sessions_status_idx").on(table.status),
     index("agent_sessions_last_message_at_idx").on(table.last_message_at),
+    index("agent_sessions_reviewed_at_idx").on(table.reviewed_at),
   ]
 );
 
@@ -569,3 +571,30 @@ export const financeConversationMessages = pgTable(
 export type FinanceMemory = typeof financeMemories.$inferSelect;
 export type FinanceScheduledTask = typeof financeScheduledTasks.$inferSelect;
 export type FinanceConversationMessage = typeof financeConversationMessages.$inferSelect;
+
+// ========== 用户画像表 ==========
+export const userProfiles = pgTable(
+  "user_profiles",
+  {
+    id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+    user_id: varchar("user_id", { length: 36 }).notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+    tools_usage: jsonb("tools_usage").$type<Record<string, number>>(),  // { toolName: callCount }
+    style_keywords: text("style_keywords").array().$type<string[]>(),    // ["现代简约","暖色调"]
+    preferred_ratio: text("preferred_ratio"),                            // "9:16"
+    avg_duration: numeric("avg_duration", { precision: 4, scale: 1 }),  // 8.5
+    tone_keywords: text("tone_keywords").array().$type<string[]>(),      // ["科技感","治愈"]
+    failure_count: integer("failure_count").default(0),
+    total_conversations: integer("total_conversations").default(0),
+    behavior_summary: text("behavior_summary"),                          // 纯文本行为描述
+    last_reviewed_session_id: varchar("last_reviewed_session_id", { length: 36 }),
+    last_reviewed_at: timestamp("last_reviewed_at", { withTimezone: true }),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("user_profiles_user_id_idx").on(table.user_id),
+    index("user_profiles_last_reviewed_at_idx").on(table.last_reviewed_at),
+  ]
+);
+
+export type UserProfile = typeof userProfiles.$inferSelect;

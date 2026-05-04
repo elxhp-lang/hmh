@@ -21,8 +21,10 @@ import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { createSSEWriter, getBearerToken, ok } from '@/lib/server/api-kit';
 import { MessagePart, normalizeToolExecutionResult } from '@/lib/agent-sse';
 import { TaskStateService } from '@/lib/server/task-state-service';
+import { UserProfileService } from '@/lib/user-profile-service';
 
 const client = new LLMClient(new Config());
+const profileService = new UserProfileService();
 const toolsService = new AgentToolsService();
 const taskStateService = new TaskStateService();
 type SessionRow = { id: string; status?: string; reused?: boolean };
@@ -276,24 +278,32 @@ function extractMemoryCandidate(userMessageContent: string): MemoryCandidate | n
 
 function buildScriptTablePart(
   scripts: ExtractedScriptOption[]
-): { type: 'table'; title: string; columns: string[]; rows: string[][] } | null {
+): MessagePart | null {
   if (!Array.isArray(scripts) || scripts.length === 0) return null;
+  const columns = ['方案', '说明', '内容预览'];
   const rows = scripts.slice(0, 12).map((item) => [
     item.title || '脚本方案',
     item.description || '',
     item.content || '',
   ]);
   return {
-    type: 'table',
-    title: '脚本候选方案',
-    columns: ['方案', '说明', '内容预览'],
-    rows,
+    type: 'card',
+    cardType: 'script',
+    data: {
+      title: '脚本候选方案',
+      columns,
+      rows,
+      style: scripts[0]?.title || '',
+    },
+    actions: [
+      { id: 'select_script', label: '选第一个生成视频', action: 'send', payload: { message: `我选择「${scripts[0]?.title || '第一个脚本'}」，请用这个脚本生成视频` } },
+    ],
   };
 }
 
 function buildScriptTablePartFromUnknown(
   input: unknown
-): { type: 'table'; title: string; columns: string[]; rows: string[][] } | null {
+): MessagePart | null {
   if (!Array.isArray(input) || input.length === 0) return null;
   const normalized: ExtractedScriptOption[] = input
     .map((item, index) => {
@@ -330,7 +340,29 @@ function extractMediaPartsFromText(content: string): Array<{ type: 'image' | 'vi
 function buildToolResultCardPart(
   toolName: string,
   result: { success?: boolean; data?: unknown; error?: unknown }
-): { type: 'card'; cardType: string; data: Record<string, unknown> } {
+): MessagePart {
+  const data = result.data && typeof result.data === 'object' ? result.data as Record<string, unknown> : {};
+  // 根据工具类型选择不同的卡片
+  if (toolName === 'generate_first_frame' && result.success) {
+    return {
+      type: 'card',
+      cardType: 'first_frame',
+      data: { ...data, tool: toolName },
+      actions: [
+        { id: 'gen_video', label: '用此首帧生成视频', action: 'send', payload: { message: '基于这张首帧图生成视频' } },
+        { id: 'regen_frame', label: '重新生成', action: 'send', payload: { message: '重新生成首帧图' } },
+      ],
+    };
+  }
+  if (toolName === 'submit_video_task' && result.success) {
+    const taskId = typeof data.task_id === 'string' ? data.task_id : '';
+    return {
+      type: 'card',
+      cardType: 'task_submitted',
+      data: { ...data, tool: toolName, task_id: taskId, status: 'running', note: '视频已提交，生成中' },
+      actions: taskId ? [{ id: 'check_progress', label: '查看进度', action: 'tool_call', payload: { tool: 'open_task_replay', taskId } }] : [],
+    };
+  }
   return {
     type: 'card',
     cardType: 'tool_result',
@@ -475,6 +507,29 @@ export async function POST(request: NextRequest) {
     // 会话确保（断点重续核心）
     const session = userId ? await ensureCreativeSession(userId, sessionId || null) : null;
     toolsService.setSessionId(session?.id || null);
+
+    // 异步复盘上次未复盘的会话
+    if (userId && session?.id) {
+      void (async () => {
+        try {
+          const reviewSupabase = getSupabaseClient();
+          const { data: lastSessions } = await reviewSupabase
+            .from('agent_sessions')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('agent_type', 'creative')
+            .neq('id', session.id)
+            .is('reviewed_at', null)
+            .order('last_message_at', { ascending: false })
+            .limit(1);
+          const lastSession = (lastSessions as Record<string, unknown>[] | null)?.[0];
+          if (lastSession?.id && typeof lastSession.id === 'string') {
+            await profileService.reviewSession(userId, lastSession.id);
+          }
+        } catch { /* 复盘失败不影响主链路 */ }
+      })();
+    }
+
     const ensuredTask = userId && session?.id
       ? await taskStateService.ensureTask({
           userId,
@@ -528,6 +583,14 @@ export async function POST(request: NextRequest) {
     // ========== 构建系统提示词（包含双笔记本）==========
     const baseSystemPrompt = await getAgentSystemPrompt();
     let finalSystemPrompt = baseSystemPrompt;
+
+    // 加载用户画像摘要（隐式行为统计）
+    if (userId) {
+      const profileSummary = await profileService.getProfileSummary(userId);
+      if (profileSummary) {
+        finalSystemPrompt += `\n\n${profileSummary}`;
+      }
+    }
 
     // 添加笔记本2号的用户偏好
     if (userPreferences.length > 0) {

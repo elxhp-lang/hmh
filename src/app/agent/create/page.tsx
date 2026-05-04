@@ -17,11 +17,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { 
-  Sparkles, 
-  Loader2, 
-  Download, 
-  Layers, 
+import {
+  Sparkles,
+  Loader2,
+  Download,
+  Layers,
   Eye,
   Bell,
   X,
@@ -29,12 +29,14 @@ import {
   Save,
   Trash2,
   Search,
-  Square
+  Square,
+  PanelRight
 } from 'lucide-react';
 
 // 新组件
 import { MessageGroup } from '@/components/agent/MessageBubble';
 import { HybridInput, HybridInputAttachment } from '@/components/agent/HybridInput';
+import type { CardAction } from '@/lib/agent-sse';
 
 // ========== 调试日志系统 ==========
 interface DebugLog {
@@ -544,6 +546,7 @@ export default function CreativeAgentPageNew() {
   const [sessionPhase, setSessionPhase] = useState<SessionPhase>('bootstrapping');
   const [isLoading, setIsLoading] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [memoryActionLoading, setMemoryActionLoading] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
   
@@ -1140,6 +1143,38 @@ export default function CreativeAgentPageNew() {
     }
   }, [token, activeSessionId]);
 
+  const handleCardAction = useCallback((cardAction: CardAction) => {
+    switch (cardAction.action) {
+      case 'send': {
+        const message = typeof cardAction.payload?.message === 'string' ? cardAction.payload.message : cardAction.label;
+        setInputValue(message);
+        break;
+      }
+      case 'tool_call': {
+        const taskId = typeof cardAction.payload?.taskId === 'string' ? cardAction.payload.taskId : null;
+        if (taskId) handleOpenTaskReplay(taskId);
+        break;
+      }
+      case 'download': {
+        const url = typeof cardAction.payload?.url === 'string' ? cardAction.payload.url : '';
+        if (url) window.open(url, '_blank');
+        break;
+      }
+      case 'share': {
+        const url = typeof cardAction.payload?.url === 'string' ? cardAction.payload.url : '';
+        if (navigator.share) {
+          const title = typeof cardAction.payload?.title === 'string' ? cardAction.payload.title : '';
+          navigator.share({ url, title }).catch(() => {});
+        } else {
+          navigator.clipboard.writeText(url).catch(() => {});
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }, [handleOpenTaskReplay, setInputValue]);
+
   useEffect(() => {
     if (!workerTasks.length) return;
     for (const task of workerTasks) {
@@ -1653,9 +1688,9 @@ export default function CreativeAgentPageNew() {
         </DialogContent>
       </Dialog>
       
-      <div className="flex h-[calc(100vh-128px)] rounded-2xl border bg-card/70 backdrop-blur-sm overflow-hidden shadow-sm">
+      <div className="flex h-[calc(100vh-128px)] rounded-2xl border bg-card/70 backdrop-blur-sm overflow-hidden shadow-sm max-sm:rounded-none max-sm:border-0 max-sm:h-[100dvh]">
         {/* 左侧对话区 - min-h-0 关键！ */}
-        <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-gradient-to-b from-background to-muted/20">
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-gradient-to-b from-background to-muted/20 max-sm:min-w-0">
           {/* 头部 - shrink-0 防止被压缩 */}
           <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b bg-background/80 backdrop-blur">
             <div className="flex items-center gap-3">
@@ -1736,6 +1771,15 @@ export default function CreativeAgentPageNew() {
               >
                 {sessionLoading ? '创建中...' : '新会话'}
               </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="lg:hidden"
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                aria-label={sidebarOpen ? '关闭侧栏' : '打开侧栏'}
+              >
+                <PanelRight className="w-4 h-4" />
+              </Button>
               {isLoading && (
                 <Button
                   variant="destructive"
@@ -1760,10 +1804,29 @@ export default function CreativeAgentPageNew() {
           
           {/* 消息区域 - min-h-0 关键！允许收缩 */}
           <ScrollArea className="min-h-0 flex-1 px-6 py-5">
+            {/* 断点重续：进行中任务提醒 */}
+            {!historyLoading && workerTasks.filter(t => ['running', 'queued', 'processing'].includes(t.status)).length > 0 && (
+              <div className="mb-4 p-3 rounded-lg border border-primary/20 bg-primary/5 text-sm">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                  <span className="font-medium">
+                    你有 {workerTasks.filter(t => ['running', 'queued', 'processing'].includes(t.status)).length} 个进行中的任务
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">任务完成后会自动通知你，对话历史不会丢失。</p>
+              </div>
+            )}
             {historyLoading && (
-              <div className="mb-3 text-xs text-muted-foreground inline-flex items-center gap-2">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                正在加载该会话历史...
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className={`flex gap-3 ${i % 2 === 0 ? 'flex-row-reverse' : ''}`}>
+                    <div className="w-9 h-9 rounded-full bg-muted animate-pulse shrink-0" />
+                    <div className="space-y-2">
+                      <div className={`h-4 bg-muted animate-pulse rounded-lg ${i === 1 ? 'w-48' : i === 2 ? 'w-72' : 'w-56'}`} />
+                      <div className={`h-3 bg-muted animate-pulse rounded-lg ${i === 1 ? 'w-36' : i === 2 ? 'w-64' : 'w-44'}`} />
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
             {historyError && (
@@ -1786,7 +1849,7 @@ export default function CreativeAgentPageNew() {
               <WelcomePage onQuickStart={handleQuickStart} />
             ) : (
               <div>
-                <MessageGroup 
+                <MessageGroup
                   messages={messages.map(m => ({
                     id: m.id,
                     type: m.type,
@@ -1800,6 +1863,7 @@ export default function CreativeAgentPageNew() {
                     })),
                     isStreaming: m.id.startsWith('stream_')
                   }))}
+                  onCardAction={handleCardAction}
                 />
                 
                 {/* 兼容旧消息：仅当没有 parts 时显示旧分析卡片 */}
@@ -1912,7 +1976,7 @@ export default function CreativeAgentPageNew() {
         </div>
         
         {/* 右侧功能区 */}
-        <div className="w-80 border-l bg-muted/25 shrink-0 overflow-y-auto">
+        <div className={`${sidebarOpen ? 'fixed inset-0 z-40 w-full max-w-xs ml-auto border-l bg-muted/25 overflow-y-auto lg:relative lg:inset-auto lg:z-auto lg:w-80 lg:block' : 'w-80 border-l bg-muted/25 shrink-0 overflow-y-auto hidden lg:block'}`}>
           <RightSidebar
             creationOptions={creationOptions}
             onCreationOptionsChange={setCreationOptions}

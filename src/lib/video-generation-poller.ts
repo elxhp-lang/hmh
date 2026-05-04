@@ -348,8 +348,8 @@ export class VideoGenerationPoller {
       const videoName = taskStatus.content?.video_name || taskStatus.extra_info?.prompt?.substring(0, 20) || '未命名';
       await this.sendUserNotification(userId, videoId, videoName, publicVideoUrl, 'completed');
 
-      // 7. 调用回调 API 通知创意小海
-      await this.notifyCallback(videoId, 'completed', publicVideoUrl);
+      // 7. 注入对话消息：让创意小海下次对话时知道视频已完成
+      await this.injectConversationMessage(userId, videoId, videoName, publicVideoUrl, 'completed');
 
       console.log(`[VideoPoller] 视频处理完成: ${videoId}`);
 
@@ -418,8 +418,12 @@ export class VideoGenerationPoller {
       errorReason
     );
 
-    // 调用回调 API 通知创意小海
+    // 调用回调
     await this.notifyCallback(videoId, 'failed', undefined, errorReason);
+    // 注入对话消息
+    if (video?.user_id) {
+      await this.injectConversationMessage(String(video.user_id), videoId, video?.video_name || '未命名', '', 'failed', errorReason);
+    }
   }
 
   /**
@@ -492,9 +496,46 @@ export class VideoGenerationPoller {
     _publicVideoUrl?: string,
     _errorReason?: string
   ) {
-    // 通知已通过 sendUserNotification 写入 user_notifications 表
-    // 创意小海侧通过轮询 /api/notifications 获取通知
     console.log(`[VideoPoller] 回调: ${videoId}, status=${status}`);
+  }
+
+  /** 注入对话消息：让创意小海下次对话时感知视频完成 */
+  private async injectConversationMessage(
+    userId: string,
+    videoId: string,
+    videoName: string,
+    publicVideoUrl: string,
+    status: 'completed' | 'failed',
+    errorReason?: string
+  ) {
+    try {
+      const workerTask = await this.findWorkerTask(videoId, userId);
+      if (!workerTask?.sessionId) return;
+
+      const isSuccess = status === 'completed';
+      const content = isSuccess
+        ? `[系统消息] 视频「${videoName}」已生成完成，可以查看和下载。`
+        : `[系统消息] 视频「${videoName}」生成失败：${errorReason || '未知原因'}`;
+
+      await this.supabase.from('agent_conversation_messages').insert({
+        user_id: userId,
+        session_id: workerTask.sessionId,
+        role: 'system',
+        content,
+        parts: isSuccess ? [{
+          type: 'card',
+          cardType: 'video_result',
+          data: { video_name: videoName, public_video_url: publicVideoUrl, video_id: videoId },
+          actions: [
+            { id: 'download', label: '下载', action: 'download', payload: { url: publicVideoUrl } },
+            { id: 'gen_copywriting', label: '生成配文', action: 'send', payload: { message: `为视频「${videoName}」生成配文` } },
+          ],
+        }] : null,
+      });
+      console.log(`[VideoPoller] 对话消息已注入: session=${workerTask.sessionId}, status=${status}`);
+    } catch (error) {
+      console.error('[VideoPoller] 注入对话消息失败:', error instanceof Error ? error.message : error);
+    }
   }
 }
 

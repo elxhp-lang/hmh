@@ -476,7 +476,7 @@ function TaskRail({
               {getTaskStatusLabel(task.status)}
             </Badge>
           </div>
-          <div className="h-1.5 w-full rounded bg-muted overflow-hidden">
+          <div className="h-1.5 w-full rounded bg-muted overflow-hidden" role="progressbar" aria-valuenow={task.progress || 0} aria-valuemin={0} aria-valuemax={100} aria-label={`任务进度 ${task.progress || 0}%`}>
             <div className="h-full bg-primary transition-all" style={{ width: `${Math.max(0, Math.min(task.progress || 0, 100))}%` }} />
           </div>
           {task.error_message ? (
