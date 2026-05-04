@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { streamAgentRequest } from '@/lib/api';
+import { toast } from 'sonner';
 import { SSEEvent, MessagePart, getToolResultData } from '@/lib/agent-sse';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -759,18 +760,26 @@ export default function CreativeAgentPageNew() {
             setMessages(historyMessages);
             addDebugLog('state', '更新 messages 状态', { count: historyMessages.length });
           } else {
+            const errData = typeof historyData === 'string' ? historyData : JSON.stringify(historyData).slice(0, 200);
+            console.error(`[Session] 加载历史失败: 无数据, status=${historyRes.status}, body=${errData}`);
             addDebugLog('api', '加载对话历史失败：无数据', historyData);
             setHistoryError('该会话历史加载失败，请重试。');
+            toast.error('会话历史加载失败');
           }
         } else {
+          const statusCode = historyRes.status;
+          const errText = await historyRes.text().catch(() => '');
+          console.error(`[Session] 加载历史失败: HTTP ${statusCode}`, errText.slice(0, 200));
           addDebugLog('error', '加载对话历史失败：HTTP错误', { status: historyRes.status });
-          setHistoryError('加载历史失败，请检查网络后重试。');
+          setHistoryError(`加载历史失败 (${statusCode})，请检查网络后重试。`);
+          toast.error(`加载历史失败 (${statusCode})`);
         }
       } catch (error) {
         if (controller.signal.aborted) return;
         console.error('📔 [笔记本1号] 加载历史消息失败:', error);
         addDebugLog('error', '加载历史消息异常', { error: String(error) });
         setHistoryError('加载历史失败，请重试。');
+        toast.error('加载历史失败');
       } finally {
         if (requestId === historyRequestSeq.current) {
           setHistoryLoading(false);
@@ -796,38 +805,72 @@ export default function CreativeAgentPageNew() {
   useEffect(() => {
     if (!user?.user_id || !token) return;
     let mounted = true;
+    // 15秒超时保护：防止 API 故障导致 UI 永久卡在启动态
+    const bootstrapTimeout = setTimeout(() => {
+      if (mounted && !sessionReady) {
+        console.warn('[Session] 启动超时（15s），强制跳过');
+        setSessionReady(true);
+        setSessionLoading(false);
+        setSessionPhase('idle');
+      }
+    }, 15000);
     const bootstrap = async () => {
       setSessionPhase('bootstrapping');
       setSessionLoading(true);
-      const res = await fetch('/api/xiaohai/agent/sessions', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!mounted) return;
-      if (!res.ok) {
-        setSessionLoading(false);
-        setSessionPhase('idle');
-        return;
+      try {
+        const res = await fetch('/api/xiaohai/agent/sessions', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!mounted) return;
+        if (!res.ok) {
+          console.error(`[Session] 启动失败: HTTP ${res.status}`);
+          toast.error('加载会话列表失败，请刷新页面');
+          setSessionReady(true);
+          setSessionLoading(false);
+          setSessionPhase('idle');
+          return;
+        }
+        const data = await res.json();
+        const nextSessions = (data?.data?.sessions || []) as CreativeSession[];
+        setSessions(nextSessions);
+        if (nextSessions.length > 0) {
+          setActiveSessionId(nextSessions[0].id);
+        } else {
+          setActiveSessionId(null);
+        }
+        setSessionReady(true);
+      } catch (error) {
+        if (!mounted) return;
+        console.error('[Session] 启动异常:', error);
+        toast.error('加载会话列表失败，请检查网络');
+        setSessionReady(true);
+      } finally {
+        if (mounted) {
+          setSessionLoading(false);
+          setSessionPhase('idle');
+        }
       }
-      const data = await res.json();
-      const nextSessions = (data?.data?.sessions || []) as CreativeSession[];
-      setSessions(nextSessions);
-      if (nextSessions.length > 0) {
-        setActiveSessionId(nextSessions[0].id);
-      } else {
-        setActiveSessionId(null);
-      }
-      setSessionReady(true);
-      setSessionLoading(false);
-      setSessionPhase('idle');
     };
     bootstrap();
     return () => {
       mounted = false;
+      clearTimeout(bootstrapTimeout);
     };
   }, [user?.user_id, token]);
 
   const handleCreateSession = async () => {
-    if (!token || isLoading || sessionLoading) return;
+    if (!token) {
+      toast.error('请先登录');
+      return;
+    }
+    if (isLoading) {
+      toast.error('请等待当前操作完成');
+      return;
+    }
+    if (sessionLoading) {
+      console.log('[Session] 会话加载中，请稍后再试');
+      return;
+    }
     setSessionPhase('switching');
     setSessionLoading(true);
     try {
@@ -839,17 +882,28 @@ export default function CreativeAgentPageNew() {
         },
         body: JSON.stringify({ action: 'create' }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        console.error(`[Session] 创建会话失败: HTTP ${res.status}`, errText);
+        toast.error(`创建会话失败 (${res.status})，请重试`);
+        return;
+      }
       const data = await res.json();
       const newSession = data?.data?.session as CreativeSession | undefined;
-      if (!newSession) return;
+      if (!newSession) {
+        console.error('[Session] 创建会话失败: 响应格式异常', data);
+        toast.error('创建会话失败，响应格式异常');
+        return;
+      }
       setSessions((prev) => [newSession, ...prev.filter((item) => item.id !== newSession.id)]);
       setActiveSessionId(newSession.id);
       setMessages([]);
       conversationHistory.current = [];
       setSessionReady(true);
+      toast.success('新会话已创建');
     } catch (error) {
-      console.error('创建新会话失败:', error);
+      console.error('[Session] 创建新会话异常:', error);
+      toast.error('创建会话失败，请检查网络');
     } finally {
       setSessionLoading(false);
       if (!isLoading) {
