@@ -525,7 +525,8 @@ export class VideoGenerationPoller {
       // 注入系统消息（LLM上下文可见）+ LLM生成主动回复
       const parts = isSuccess ? [{ type: 'card' as const, cardType: 'video_result', data: { video_name: videoName, public_video_url: publicVideoUrl, video_id: videoId } }] : null;
       const insertRes = await this.supabase.from('agent_conversation_messages').insert({
-        user_id: userId, session_id: workerTask.sessionId, role: 'system', content, parts,
+        user_id: userId, session_id: workerTask.sessionId, role: 'system', content,
+        parts: parts ? JSON.stringify(parts) : null,
       });
       console.log(`📨 [VideoPoller] 系统消息注入: videoId=${videoId}, session=${workerTask.sessionId}, status=${status}, inserted=${!!insertRes}`);
       // LLM生成主动回复

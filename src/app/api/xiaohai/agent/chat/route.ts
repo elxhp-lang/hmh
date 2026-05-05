@@ -93,7 +93,7 @@ async function saveConversationMessage(
         session_id: sessionId,
         role: role,
         content: content,
-        parts: Array.isArray(parts) && parts.length > 0 ? parts : null,
+        parts: Array.isArray(parts) && parts.length > 0 ? JSON.stringify(parts) : null,
       })
       .select('id')
       .single();
@@ -133,7 +133,7 @@ async function updateConversationMessageParts(
     const supabase = getSupabaseClient();
     const { error } = await supabase
       .from('agent_conversation_messages')
-      .update({ parts })
+      .update({ parts: JSON.stringify(parts) })
       .eq('id', messageId)
       .eq('user_id', userId)
       .eq('role', 'assistant');
@@ -1077,7 +1077,7 @@ export async function POST(request: NextRequest) {
                             session_id: session.id,
                             role: 'system',
                             content: resultMsg,
-                            parts: [resultPart],
+                            parts: JSON.stringify([resultPart]),
                           });
                           console.log(`📨 [AsyncResult] 系统消息已注入: tool=${toolName}, session=${session.id}, inserted=${!!insertResult}`);
                         } catch (e) {
