@@ -93,6 +93,10 @@ export class ImageGenerationService {
       // 获取结果
       const helper = this.client.getResponseHelper(response);
 
+      console.log('[首帧图生成] helper keys:', Object.keys(helper));
+      console.log('[首帧图生成] helper.imageUrls:', helper.imageUrls);
+      console.log('[首帧图生成] helper full:', JSON.stringify(helper).slice(0, 500));
+
       if (!helper.success || !helper.imageUrls || helper.imageUrls.length === 0) {
         console.error('[首帧图生成] 生成失败:', helper);
         return {
@@ -102,7 +106,17 @@ export class ImageGenerationService {
       }
 
       const imageUrl = helper.imageUrls[0];
-      console.log('[首帧图生成] 生成成功:', imageUrl);
+      console.log('[首帧图生成] imageUrl:', imageUrl);
+
+      // Coze Space URL 不是图片直链，尝试从 SDK response 直接读图片数据
+      if (imageUrl.includes('space.coze.cn/s/')) {
+        console.log('[首帧图生成] 检测到Coze Space URL，尝试从response直接获取图片数据');
+        // 检查 response 本身是否包含 image data
+        const respAny = response as unknown as Record<string, unknown>;
+        if (respAny.data || respAny.content) {
+          console.log('[首帧图生成] response keys:', Object.keys(respAny));
+        }
+      }
 
       // 下载图片并上传到 TOS
       const localPath = await this.downloadImage(imageUrl);
