@@ -1080,6 +1080,30 @@ export async function POST(request: NextRequest) {
                             parts: [resultPart],
                           });
                         } catch { /* 非关键路径，不影响主流程 */ }
+                        // 调用LLM生成主动回复，让用户感知任务完成
+                        try {
+                          const { LLMClient, Config } = await import('coze-coding-dev-sdk');
+                          const replyClient = new LLMClient(new Config());
+                          const replyMessages = [
+                            { role: 'system' as const, content: `你是创意小海。用户的任务「${toolName}」已异步执行完成。请在50字以内简短告知用户结果，并自然建议下一步操作（如：生成视频/下载/分享/重试等）。不要用JSON格式回复。` },
+                            { role: 'user' as const, content: `工具 ${toolName} 执行成功。结果：${JSON.stringify(normalizedResult.data ?? {}).slice(0, 500)}` },
+                          ];
+                          let replyText = '';
+                          const replyStream = await replyClient.stream(replyMessages, { model: 'doubao-seed-2-0-pro-260215', temperature: 0.7 });
+                          for await (const chunk of replyStream) {
+                            const c = (chunk as { content?: unknown }).content;
+                            if (typeof c === 'string') replyText += c;
+                          }
+                          if (replyText.trim()) {
+                            const persistSupabase = getSupabaseClient();
+                            await persistSupabase.from('agent_conversation_messages').insert({
+                              user_id: userId,
+                              session_id: session.id,
+                              role: 'assistant',
+                              content: replyText.trim(),
+                            });
+                          }
+                        } catch { /* LLM调用失败不影响主流程 */ }
                       }
                     } catch (toolError) {
                       await taskStateService.appendTaskItem({

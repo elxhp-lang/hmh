@@ -522,21 +522,29 @@ export class VideoGenerationPoller {
         ? `[系统消息] 视频「${videoName}」已生成完成，可以查看和下载。`
         : `[系统消息] 视频「${videoName}」生成失败：${errorReason || '未知原因'}`;
 
+      // 注入系统消息（LLM上下文可见）+ LLM生成主动回复
+      const parts = isSuccess ? [{ type: 'card' as const, cardType: 'video_result', data: { video_name: videoName, public_video_url: publicVideoUrl, video_id: videoId } }] : null;
       await this.supabase.from('agent_conversation_messages').insert({
-        user_id: userId,
-        session_id: workerTask.sessionId,
-        role: 'system',
-        content,
-        parts: isSuccess ? [{
-          type: 'card',
-          cardType: 'video_result',
-          data: { video_name: videoName, public_video_url: publicVideoUrl, video_id: videoId },
-          actions: [
-            { id: 'download', label: '下载', action: 'download', payload: { url: publicVideoUrl } },
-            { id: 'gen_copywriting', label: '生成配文', action: 'send', payload: { message: `为视频「${videoName}」生成配文` } },
-          ],
-        }] : null,
+        user_id: userId, session_id: workerTask.sessionId, role: 'system', content, parts,
       });
+      // LLM生成主动回复
+      if (isSuccess) {
+        try {
+          const { LLMClient, Config } = await import('coze-coding-dev-sdk');
+          const c = new LLMClient(new Config());
+          let t = '';
+          const s = await c.stream([
+            { role: 'system' as const, content: '你是创意小海。请在40字以内简短告知用户视频已生成完成，建议查看或下载。' },
+            { role: 'user' as const, content: `视频「${videoName}」生成完成，URL: ${publicVideoUrl.slice(0, 80)}` },
+          ], { model: 'doubao-seed-2-0-pro-260215', temperature: 0.7 });
+          for await (const ck of s) { const ct = (ck as { content?: unknown }).content; if (typeof ct === 'string') t += ct; }
+          if (t.trim()) {
+            await this.supabase.from('agent_conversation_messages').insert({
+              user_id: userId, session_id: workerTask.sessionId, role: 'assistant', content: t.trim(),
+            });
+          }
+        } catch { /* LLM失败不影响 */ }
+      }
       console.log(`[VideoPoller] 对话消息已注入: session=${workerTask.sessionId}, status=${status}`);
     } catch (error) {
       console.error('[VideoPoller] 注入对话消息失败:', error instanceof Error ? error.message : error);
