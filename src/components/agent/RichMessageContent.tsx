@@ -2,13 +2,12 @@
 
 import React, { useMemo } from 'react';
 import NextImage from 'next/image';
-import type { MessagePart, CardAction } from '@/lib/agent-sse';
+import type { MessagePart } from '@/lib/agent-sse';
 import { CardRenderer } from '@/components/agent/ActionCards';
 
 interface RichMessageContentProps {
   content: string;
   parts?: MessagePart[];
-  onCardAction?: (action: CardAction) => void;
 }
 
 type MediaLink = {
@@ -83,7 +82,7 @@ function tryParseCodeBlock(block: string): CodeBlock | null {
   };
 }
 
-export function RichMessageContent({ content, parts = [], onCardAction }: RichMessageContentProps) {
+export function RichMessageContent({ content, parts = [] }: RichMessageContentProps) {
   const { links, blocks } = useMemo(() => {
     const collectedLinks = collectMediaLinks(content);
     const cleaned = removeUrls(content, collectedLinks);
@@ -156,8 +155,6 @@ export function RichMessageContent({ content, parts = [], onCardAction }: RichMe
                 key={`part_card_${pIdx}`}
                 cardType={part.cardType}
                 data={dataRecord}
-                actions={part.actions}
-                onAction={onCardAction}
               />
             );
           }

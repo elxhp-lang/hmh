@@ -318,15 +318,7 @@ function buildScriptTablePart(
   return {
     type: 'card',
     cardType: 'script',
-    data: {
-      title: '脚本候选方案',
-      columns,
-      rows,
-      style: scripts[0]?.title || '',
-    },
-    actions: [
-      { id: 'select_script', label: '选第一个生成视频', action: 'send', payload: { message: `我选择「${scripts[0]?.title || '第一个脚本'}」，请用这个脚本生成视频` } },
-    ],
+    data: { title: '脚本候选方案', columns, rows, style: scripts[0]?.title || '' },
   };
 }
 
@@ -373,36 +365,16 @@ function buildToolResultCardPart(
   result: { success?: boolean; data?: unknown; error?: unknown }
 ): MessagePart {
   const data = result.data && typeof result.data === 'object' ? result.data as Record<string, unknown> : {};
-  // 根据工具类型选择不同的卡片
   if (toolName === 'generate_first_frame' && result.success) {
-    return {
-      type: 'card',
-      cardType: 'first_frame',
-      data: { ...data, tool: toolName },
-      actions: [
-        { id: 'gen_video', label: '用此首帧生成视频', action: 'send', payload: { message: '基于这张首帧图生成视频' } },
-        { id: 'regen_frame', label: '重新生成', action: 'send', payload: { message: '重新生成首帧图' } },
-      ],
-    };
+    return { type: 'card', cardType: 'first_frame', data: { ...data, tool: toolName } };
   }
   if (toolName === 'submit_video_task' && result.success) {
     const taskId = typeof data.task_id === 'string' ? data.task_id : '';
-    return {
-      type: 'card',
-      cardType: 'task_submitted',
-      data: { ...data, tool: toolName, task_id: taskId, status: 'running', note: '视频已提交，生成中' },
-      actions: taskId ? [{ id: 'check_progress', label: '查看进度', action: 'tool_call', payload: { tool: 'open_task_replay', taskId } }] : [],
-    };
+    return { type: 'card', cardType: 'task_submitted', data: { ...data, tool: toolName, task_id: taskId, status: 'running', note: '视频已提交，生成中' } };
   }
   return {
-    type: 'card',
-    cardType: 'tool_result',
-    data: {
-      tool: toolName,
-      success: !!result.success,
-      error: typeof result.error === 'string' ? result.error : undefined,
-      data: result.data ?? null,
-    },
+    type: 'card', cardType: 'tool_result',
+    data: { tool: toolName, success: !!result.success, error: typeof result.error === 'string' ? result.error : undefined, data: result.data ?? null },
   };
 }
 

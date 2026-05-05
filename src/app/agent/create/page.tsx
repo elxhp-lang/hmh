@@ -37,7 +37,6 @@ import {
 // 新组件
 import { MessageGroup } from '@/components/agent/MessageBubble';
 import { HybridInput, HybridInputAttachment } from '@/components/agent/HybridInput';
-import type { CardAction } from '@/lib/agent-sse';
 
 // ========== 调试日志系统 ==========
 interface DebugLog {
@@ -809,7 +808,8 @@ export default function CreativeAgentPageNew() {
     return () => {
       historyAbortRef.current?.abort();
     };
-  }, [user?.user_id, token, activeSessionId, sessionReady, historyReloadSeed, isLoading]);
+  // isLoading 不应在此：每次SSE结束isLoading变为false会触发不必要的重新加载
+  }, [user?.user_id, token, activeSessionId, sessionReady, historyReloadSeed]);
 
   useEffect(() => {
     return () => {
@@ -1216,43 +1216,6 @@ export default function CreativeAgentPageNew() {
       console.error('任务回放失败:', error);
     }
   }, [token, activeSessionId]);
-
-  const handleCardAction = useCallback((cardAction: CardAction) => {
-    switch (cardAction.action) {
-      case 'send': {
-        const message = typeof cardAction.payload?.message === 'string' ? cardAction.payload.message : cardAction.label;
-        setInputValue(message);
-        break;
-      }
-      case 'tool_call': {
-        const taskId = typeof cardAction.payload?.taskId === 'string' ? cardAction.payload.taskId : null;
-        if (taskId) handleOpenTaskReplay(taskId);
-        break;
-      }
-      case 'download': {
-        const url = typeof cardAction.payload?.url === 'string' ? cardAction.payload.url : '';
-        if (url) window.open(url, '_blank');
-        break;
-      }
-      case 'share': {
-        const url = typeof cardAction.payload?.url === 'string' ? cardAction.payload.url : '';
-        if (navigator.share) {
-          const title = typeof cardAction.payload?.title === 'string' ? cardAction.payload.title : '';
-          navigator.share({ url, title }).catch(() => {});
-        } else {
-          navigator.clipboard.writeText(url).catch(() => {});
-        }
-        break;
-      }
-      case 'navigate': {
-        const path = typeof cardAction.payload?.path === 'string' ? cardAction.payload.path : '';
-        if (path) window.location.href = path;
-        break;
-      }
-      default:
-        break;
-    }
-  }, [handleOpenTaskReplay, setInputValue]);
 
   useEffect(() => {
     if (!workerTasks.length) return;
@@ -1969,7 +1932,6 @@ export default function CreativeAgentPageNew() {
                     })),
                     isStreaming: m.id.startsWith('stream_')
                   }))}
-                  onCardAction={handleCardAction}
                 />
                 
                 {/* 兼容旧消息：仅当没有 parts 时显示旧分析卡片 */}

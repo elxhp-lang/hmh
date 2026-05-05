@@ -4,7 +4,7 @@ import { useState } from 'react';
 import NextImage from 'next/image';
 import { cn } from '@/lib/utils';
 import { RichMessageContent } from '@/components/agent/RichMessageContent';
-import type { MessagePart, CardAction } from '@/lib/agent-sse';
+import type { MessagePart } from '@/lib/agent-sse';
 import { 
   Bot, 
   User, 
@@ -35,7 +35,6 @@ export interface MessageBubbleProps {
   parts?: MessagePart[];
   isStreaming?: boolean;
   showAvatar?: boolean;
-  onCardAction?: (action: CardAction) => void;
 }
 
 // ========== 气泡组件 ==========
@@ -47,8 +46,7 @@ export function MessageBubble({
   attachments = [],
   parts = [],
   isStreaming = false,
-  showAvatar = true,
-  onCardAction
+  showAvatar = true
 }: MessageBubbleProps) {
   const isUser = type === 'user';
   const isSystem = type === 'system';
@@ -128,7 +126,7 @@ export function MessageBubble({
           )}
           
           {/* 消息文本 */}
-          <RichMessageContent content={content} parts={parts} onCardAction={onCardAction} />
+          <RichMessageContent content={content} parts={parts} />
           
           {/* 流式加载指示器 */}
           {isStreaming && (
@@ -235,10 +233,9 @@ export function MessageBubble({
 interface MessageGroupProps {
   messages: MessageBubbleProps[];
   showTimestamps?: boolean;
-  onCardAction?: (action: CardAction) => void;
 }
 
-export function MessageGroup({ messages, showTimestamps = true, onCardAction }: MessageGroupProps) {
+export function MessageGroup({ messages, showTimestamps = true }: MessageGroupProps) {
   // 按时间分组（5分钟内连续消息为一组）
   const groups: { messages: MessageBubbleProps[]; timestamp: Date }[] = [];
   
@@ -284,7 +281,6 @@ export function MessageGroup({ messages, showTimestamps = true, onCardAction }: 
                 group.messages.indexOf(msg) === group.messages.length - 1 ||
                 msg.type !== group.messages[0].type
               }
-              onCardAction={onCardAction}
             />
           ))}
         </div>

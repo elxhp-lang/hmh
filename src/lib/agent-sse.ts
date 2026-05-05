@@ -16,20 +16,12 @@ export type SSEEventType =
   | 'error'
   | 'done';
 
-export interface CardAction {
-  id: string;
-  label: string;
-  action: 'send' | 'tool_call' | 'download' | 'share' | 'navigate';
-  payload?: Record<string, unknown>;
-  variant?: 'default' | 'outline' | 'ghost';
-}
-
 export type MessagePart =
   | { type: 'text'; text: string; format?: 'plain' | 'markdown' }
   | { type: 'table'; title?: string; columns: string[]; rows: string[][] }
   | { type: 'image'; url: string; alt?: string }
   | { type: 'video'; url: string; poster?: string }
-  | { type: 'card'; cardType: string; data: Record<string, unknown>; actions?: CardAction[] };
+  | { type: 'card'; cardType: string; data: Record<string, unknown> };
 
 export interface ToolExecutionResult {
   success?: boolean;
