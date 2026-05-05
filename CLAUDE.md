@@ -110,14 +110,12 @@ AI: coze-coding-dev-sdk (LLMClient + ImageGenerationClient + SeedanceClient)
 
 | # | 状态 | 冲突 | 位置 |
 |---|------|------|------|
-| 1 | ✅ 已修复 | generate_script 同步LLM被误标为异步(LONG_RUNNING_TOOLS) | route.ts |
-| 2 | ⚠️ 保留 | analyze_video/image/multi ∈ LONG_RUNNING_TOOLS | route.ts:203-205 |
-| | | 保留原因：视觉模型调用10s+，移除会导致SSE流长时间沉默 | |
-| 3 | ✅ 已修复 | 提示词工具数34→35(差1个saveCreativeUserPreference) | CLAUDE.md |
-| 4 | ✅ 已修复 | 前端不处理 'error' SSE 事件 | page.tsx switch |
-| 5 | ✅ 已修复 | 前端不处理 'task' SSE 事件 | page.tsx switch |
-| 6 | ⚠️ 保留 | Script接口缺 description 字段 | script-generator-service.ts:16 |
-| | | 保留原因：需要改LLM输出格式，需配合prompt调整 | |
+| 1 | ✅ 已修复 | generate_script 从 LONG_RUNNING_TOOLS 移除 | route.ts |
+| 2 | ✅ 已修复 | analyze_video/image/multi: 异步执行+结果回推LLM+SSE推送+DB持久化 | route.ts void async回调 |
+| 3 | ✅ 已修复 | 提示词工具数34→35 | CLAUDE.md |
+| 4 | ✅ 已修复 | 前端 error SSE 事件处理 | page.tsx switch |
+| 5 | ✅ 已修复 | 前端 task SSE 事件处理 | page.tsx switch |
+| 6 | ✅ 已修复 | Script.description 从 content 第一行自动提取 | route.ts:344 |
 | 7 | ✅ 已修复 | script_options SSE 附加 currentParts | page.tsx |
 | 8 | ✅ 已修复 | get_script_detail 工具不存在 | ActionCards.tsx |
 

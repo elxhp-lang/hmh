@@ -341,7 +341,9 @@ function buildScriptTablePartFromUnknown(
       return {
         id: typeof raw.id === 'string' ? raw.id : `script_${index + 1}`,
         title: typeof raw.title === 'string' ? raw.title : `脚本方案 ${index + 1}`,
-        description: typeof raw.description === 'string' ? raw.description : '',
+        description: typeof raw.description === 'string' && raw.description
+          ? raw.description
+          : (typeof raw.content === 'string' ? raw.content.split('\n')[0].slice(0, 120) : ''),
         content: typeof raw.content === 'string' ? raw.content : '',
       } as ExtractedScriptOption;
     })
@@ -1084,6 +1086,25 @@ export async function POST(request: NextRequest) {
                       });
                       await taskStateService.aggregateTaskFromItems(runtimeTaskId);
                       }
+                      // 非提交型工具：将实际结果回推LLM上下文，让LLM知道执行结果
+                      if (longToolMode !== 'submission' && succeeded) {
+                        const resultMsg = `[工具执行完成]\n工具: ${toolName}\n结果: ${JSON.stringify(normalizedResult.data ?? {})}`;
+                        messages.push({ role: 'user', content: resultMsg });
+                        // SSE实时推送结果卡片到前端
+                        const resultPart = buildToolResultCardPart(toolName, normalizedResult as { success?: boolean; data?: unknown; error?: unknown });
+                        sendEvent({ type: 'message_part', part: resultPart, data: { source: 'async_result' } });
+                        // 持久化：下次对话加载历史时LLM可见
+                        try {
+                          const persistSupabase = getSupabaseClient();
+                          await persistSupabase.from('agent_conversation_messages').insert({
+                            user_id: userId,
+                            session_id: session.id,
+                            role: 'system',
+                            content: resultMsg,
+                            parts: [resultPart],
+                          });
+                        } catch { /* 非关键路径，不影响主流程 */ }
+                      }
                     } catch (toolError) {
                       await taskStateService.appendTaskItem({
                         taskId: runtimeTaskId,
@@ -1098,6 +1119,9 @@ export async function POST(request: NextRequest) {
                         error: toolError instanceof Error ? toolError.message : '工具执行失败',
                       });
                       await taskStateService.aggregateTaskFromItems(runtimeTaskId);
+                      // 失败时也回推错误信息
+                      const errMsg = `[工具执行失败]\n工具: ${toolName}\n错误: ${toolError instanceof Error ? toolError.message : '未知错误'}`;
+                      messages.push({ role: 'user', content: errMsg });
                     }
                   })();
 
