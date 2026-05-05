@@ -640,6 +640,17 @@ export default function CreativeAgentPageNew() {
     setIsClient(true);
   }, []);
 
+  // beforeunload: 有进行中任务时警告
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (workerTasks.some(t => ['running', 'queued'].includes(t.status))) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [workerTasks]);
+
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
   }, [activeSessionId]);

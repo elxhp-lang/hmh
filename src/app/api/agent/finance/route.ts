@@ -233,6 +233,13 @@ function parseToolCalls(text: string): ParsedToolCall[] {
 
 // ========== 对话历史（内存）==========
 const conversationHistory: Map<string, Array<{ role: 'user' | 'assistant'; content: string }>> = new Map();
+const MAX_CONVERSATIONS = 50; // 最多保留50个活跃会话
+function pruneConversationHistory(): void {
+  if (conversationHistory.size > MAX_CONVERSATIONS) {
+    const keys = [...conversationHistory.keys()].slice(0, conversationHistory.size - MAX_CONVERSATIONS);
+    keys.forEach(k => conversationHistory.delete(k));
+  }
+}
 
 // ========== 保存对话消息到数据库（财务助手专用表）==========
 
@@ -283,6 +290,7 @@ export async function POST(request: NextRequest) {
     // 获取或创建对话历史
     if (!conversationHistory.has(convId)) {
       conversationHistory.set(convId, []);
+      pruneConversationHistory();
     }
     const history = conversationHistory.get(convId)!;
 

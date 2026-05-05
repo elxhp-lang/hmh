@@ -27,12 +27,13 @@ export class TaskStateService {
   async ensureTask(input: EnsureTaskInput): Promise<{ id: string; status: WorkerTaskStatus; reused: boolean }> {
     const supabase = getSupabaseClient();
     if (input.clientRequestId) {
-      const { data: existing } = await supabase
+      let idempotentQuery = supabase
         .from('worker_tasks')
         .select('id,status')
         .eq('user_id', input.userId)
-        .eq('client_request_id', input.clientRequestId)
-        .single();
+        .eq('client_request_id', input.clientRequestId);
+      if (input.taskType) idempotentQuery = idempotentQuery.eq('task_type', input.taskType);
+      const { data: existing } = await idempotentQuery.single();
       if (existing?.id && existing?.status) {
         return { id: String(existing.id), status: existing.status as WorkerTaskStatus, reused: true };
       }

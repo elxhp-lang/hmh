@@ -38,6 +38,14 @@ const rateLimitMap = new Map<string, number[]>();
 const RATE_LIMIT_WINDOW = 60 * 1000; // 1 分钟窗口
 const RATE_LIMIT_MAX = 15;           // 每分钟最多 15 次请求
 
+// 每10分钟清理过期条目，防止Map无限增长
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entries] of rateLimitMap) {
+    if (entries.every(t => now - t > RATE_LIMIT_WINDOW)) rateLimitMap.delete(key);
+  }
+}, 600000);
+
 function checkRateLimit(userId: string): { allowed: boolean; retryAfterSeconds: number } {
   const now = Date.now();
   const timestamps = rateLimitMap.get(userId) || [];
