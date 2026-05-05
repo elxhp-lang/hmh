@@ -687,3 +687,58 @@ coze start
 2. **文件上传**: 文件上传后存储到 TOS，按需生成签名 URL
 3. **视频生成**: 使用 Seedance 2.0 模型，支持文生视频和图生视频
 4. **智能体对话**: 使用 LLM 流式输出，支持多轮对话
+
+## Cursor Cloud specific instructions
+
+### Environment overview
+
+This is a single-process Next.js 16 application (no Docker, no microservices). The custom server at `src/server.ts` wraps Next.js and runs `VideoGenerationPoller` in-process.
+
+### Prerequisites (already in the update script)
+
+- **Node.js 22** (installed from NodeSource)
+- **pnpm 9** (enforced by `preinstall` hook — `npm install -g pnpm@9`)
+- **PostgreSQL 16** (local, installed via `apt`)
+
+### Database setup
+
+A local PostgreSQL instance is used. The update script starts it and ensures the `hmh` user and `hmhdb` database exist. Schema is synced via `drizzle-kit push --force`. Migrations in `supabase/migrations/` are applied on top.
+
+Connection string: `postgresql://hmh:hmh123@localhost:5432/hmhdb`
+
+### Environment variables
+
+A `.env.local` file is created by the update script with `DATABASE_URL` and `JWT_SECRET`. The server reads it via `dotenv` on startup. External service credentials (`ARK_API_KEY`, `VOLCENGINE_*`, `FEISHU_WEBHOOK_URL`) are **not** required for the app to start — pages load and auth works without them, but AI/video/storage features will fail.
+
+### Running the dev server
+
+Do **not** use `pnpm dev` (the `scripts/dev.sh` script uses `pkill` which is unsafe). Instead run directly:
+
+```bash
+DATABASE_URL=postgresql://hmh:hmh123@localhost:5432/hmhdb \
+JWT_SECRET=dev-jwt-secret-for-local-testing-only \
+PORT=5000 \
+pnpm tsx watch src/server.ts
+```
+
+The server listens on port **5000**. Health check: `GET /api/health` returns `{"status":"ok",...}`.
+
+### Common commands
+
+See `package.json` scripts and the "常用命令" section above. Key ones:
+
+| Task | Command |
+|------|---------|
+| Install deps | `pnpm install` |
+| Lint | `pnpm lint` |
+| Type check | `pnpm ts-check` |
+| Build | `pnpm build` |
+| Dev server | see "Running the dev server" above |
+
+### Gotchas
+
+- The `preinstall` script enforces pnpm — never use `npm` or `yarn`.
+- `scripts/dev.sh` uses `pkill -9` broadly; avoid running it in cloud agents.
+- The Supabase client (`supabase-client.ts`) is a **custom wrapper** over the `pg` library, not the official Supabase SDK. Any PostgreSQL instance works.
+- `coze-coding-dev-sdk` auto-configures credentials inside the Coze hosting platform; outside that environment, AI/LLM features require platform credentials that are not simple env vars.
+- No automated test suite exists — the project has no `test` script. Validation is done via lint, type-check, build, and manual testing.
