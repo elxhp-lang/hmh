@@ -1062,16 +1062,19 @@ export async function POST(request: NextRequest) {
                       });
                       await taskStateService.aggregateTaskFromItems(runtimeTaskId);
                       }
-                      // 非提交型工具：将实际结果回推LLM上下文，让LLM知道执行结果
-                      if (longToolMode !== 'submission' && succeeded) {
-                        // 过滤：只暴露TOS永久URL(public_image_url)，不暴露临时URL(image_url)
+                      // 回推LLM上下文：submission工具只传task_id(防编造)，非submission工具传完整结果
+                      if (succeeded) {
+                        const isSubmission = longToolMode === 'submission';
                         const safeData = { ...normalizedResult.data as Record<string, unknown> };
                         if (toolName === 'generate_first_frame') {
-                          delete safeData.image_url;   // 临时阿里云URL，会过期
-                          delete safeData.signed_image_url;  // 临时签名URL
-                          // 只保留 public_image_url（TOS永久URL）
+                          delete safeData.image_url;
+                          delete safeData.signed_image_url;
                         }
-                        const resultMsg = `[工具执行完成]\n工具: ${toolName}\n结果: ${JSON.stringify(safeData)}`;
+                        // submission工具：只传递用于查询的关键ID
+                        const llmData = isSubmission
+                          ? { task_id: safeData.task_id, query_id: safeData.query_id, seedance_task_id: safeData.seedance_task_id || null, video_id: safeData.video_id || null, status: 'submitted' }
+                          : safeData;
+                        const resultMsg = `[工具执行${isSubmission ? '已提交' : '完成'}]\n工具: ${toolName}\n${isSubmission ? '⚠️ 请用此task_id查询进度，禁止编造ID\n' : ''}结果: ${JSON.stringify(llmData)}`;
                         messages.push({ role: 'user', content: resultMsg });
                         // SSE实时推送结果卡片到前端
                         const resultPart = buildToolResultCardPart(toolName, normalizedResult as { success?: boolean; data?: unknown; error?: unknown });
