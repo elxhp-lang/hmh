@@ -1082,10 +1082,11 @@ export async function POST(request: NextRequest) {
                         // 持久化：下次对话加载历史时LLM可见
                         try {
                           const persistSupabase = getSupabaseClient();
+                          // role='assistant' 而非 'system'：对话历史加载时只保留 user/assistant
                           const insertResult = await persistSupabase.from('agent_conversation_messages').insert({
                             user_id: userId,
                             session_id: session.id,
-                            role: 'system',
+                            role: 'assistant',
                             content: resultMsg,
                             parts: JSON.stringify([resultPart]),
                           });
