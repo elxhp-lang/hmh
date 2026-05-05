@@ -19,6 +19,7 @@ export interface GenerateFirstFrameRequest {
   aspectRatio?: string;      // 视频比例 9:16 或 16:9
   style?: string;            // 风格描述
   referenceStyle?: string;   // 参考视频风格
+  userId?: string;           // 上传用户ID（写入uploaded_files）
 }
 
 export interface GenerateFirstFrameResult {
@@ -36,7 +37,7 @@ export class ImageGenerationService {
   // 延迟初始化，避免构建时检查环境变量
   private _supabase: ReturnType<typeof getSupabaseClient> | null = null;
 
-  constructor() {
+  constructor(private userId?: string) {
     const config = new Config();
     this.client = new ImageGenerationClient(config);
   }
@@ -209,13 +210,14 @@ export class ImageGenerationService {
     const { error } = await this.supabase
       .from('uploaded_files')
       .insert({
-        file_id: imageId,
+        id: imageId,
         file_name: `首帧图_${Date.now()}`,
         file_type: 'image',
         file_url: url,
-        tos_key: key,
+        source: 'generate_first_frame',
+        source_url: key,
         file_size: 0,
-        created_by: 'system'
+        user_id: this.userId || '00000000-0000-0000-0000-000000000000',
       });
 
     if (error) {

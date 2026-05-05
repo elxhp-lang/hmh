@@ -257,7 +257,7 @@ export class AgentToolsService {
 
   private get imageGenerationService() {
     if (!this._imageGenerationService) {
-      this._imageGenerationService = new ImageGenerationService();
+      this._imageGenerationService = new ImageGenerationService(this.currentUserId || undefined);
     }
     return this._imageGenerationService;
   }
@@ -913,8 +913,8 @@ export class AgentToolsService {
       // 2) 图片任务兜底：若传入 image_id，直接查询上传文件记录
       const { data: imageFile } = await this.supabase
         .from('uploaded_files')
-        .select('file_id,file_url,created_by,created_at')
-        .eq('file_id', taskIdOrVideoId)
+        .select('id,file_url,user_id,created_at')
+        .eq('id', taskIdOrVideoId)
         .single();
       if (isUploadedFileRow(imageFile)) {
         const file = imageFile;
@@ -924,7 +924,7 @@ export class AgentToolsService {
             query_id: taskIdOrVideoId,
             task_id: taskIdOrVideoId,
             task_kind: 'image',
-            image_id: String(file.file_id),
+            image_id: String(file.id),
             image_url: String(file.file_url || ''),
             public_image_url: String(file.file_url || ''),
             status: 'succeeded',

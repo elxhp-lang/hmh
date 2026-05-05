@@ -102,7 +102,7 @@ export class TaskStateService {
       message_id: messageId,
       output_type: 'assistant_message',
       text_content: textContent,
-      parts: parts || [],
+      parts: JSON.stringify(parts || []),
     });
   }
 
@@ -177,6 +177,10 @@ export class TaskStateService {
 
   async aggregateTaskFromItems(taskId: string): Promise<void> {
     const supabase = getSupabaseClient();
+    // 已是终态则不再聚合，防止 succeeded -> partial_succeeded 等非法迁移
+    const { data: current } = await supabase.from('worker_tasks').select('status').eq('id', taskId).single();
+    if (current?.status === 'succeeded' || current?.status === 'failed' || current?.status === 'cancelled') return;
+
     const { data: items } = await supabase
       .from('worker_task_items')
       .select('status')
