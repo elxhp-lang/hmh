@@ -29,8 +29,25 @@ async function interceptAuthResponse(response: Response): Promise<{ body: unknow
     const body = await response.json().catch(() => ({}));
     const msg = typeof (body as Record<string, unknown>).error === 'string' ? (body as Record<string, unknown>).error as string : '';
     if (msg.includes('expired') || msg.includes('过期') || msg.includes('无效') || msg.includes('invalid') || msg.includes('Token')) {
-      handleAuthExpired();
-      return { body, handled: true };
+      // 先尝试刷新Token
+      let refreshed = false;
+      try {
+        const currentToken = typeof window !== 'undefined' ? localStorage.getItem('haimeng_token') : null;
+        if (currentToken) {
+          const refreshRes = await fetch('/api/auth/refresh', { method: 'POST', headers: { Authorization: `Bearer ${currentToken}` } });
+          if (refreshRes.ok) {
+            const refreshData = await refreshRes.json();
+            if (refreshData.token) {
+              localStorage.setItem('haimeng_token', refreshData.token);
+              refreshed = true;
+            }
+          }
+        }
+      } catch { /* 刷新失败，继续登出 */ }
+      if (!refreshed) {
+        handleAuthExpired();
+      }
+      return { body, handled: !!refreshed ? false : true };
     }
     return { body, handled: false };
   }

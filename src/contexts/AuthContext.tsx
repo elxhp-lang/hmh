@@ -21,6 +21,7 @@ interface AuthContextType {
   login: (token: string, user: User) => void;
   logout: () => void;
   updateUser: (user: Partial<User>) => void;
+  refreshToken: () => Promise<string | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -59,8 +60,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     }
-    // 无论是否有 window，都要设置 loading 为 false
+    // 跨标签页同步：其他标签页登出时，本标签页同步登出
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === TOKEN_KEY && !e.newValue) {
+        setToken(null);
+        setUser(null);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
     setLoading(false);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   const login = (newToken: string, newUser: User) => {
@@ -85,6 +95,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const refreshToken = async (): Promise<string | null> => {
+    if (typeof window === 'undefined') return null;
+    const currentToken = localStorage.getItem(TOKEN_KEY);
+    if (!currentToken) return null;
+    try {
+      const res = await fetch('/api/auth/refresh', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${currentToken}` },
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data.token) {
+        setToken(data.token);
+        localStorage.setItem(TOKEN_KEY, data.token);
+        return data.token;
+      }
+    } catch { /* 网络错误，静默失败 */ }
+    return null;
+  };
+
   const updateUser = (updates: Partial<User>) => {
     if (user) {
       const updatedUser = { ...user, ...updates };
@@ -96,7 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout, updateUser }}>
+    <AuthContext.Provider value={{ user, token, loading, login, logout, updateUser, refreshToken }}>
       {children}
     </AuthContext.Provider>
   );

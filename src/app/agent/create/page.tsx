@@ -628,6 +628,7 @@ export default function CreativeAgentPageNew() {
   const lastStreamUiFlushRef = useRef(0);
   const historyAbortRef = useRef<AbortController | null>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
+  const sseRetryAttemptedRef = useRef(false);
   const activeSessionIdRef = useRef<string | null>(null);
   const previousTaskStatusRef = useRef<Map<string, string>>(new Map());
   const notifiedTerminalTaskRef = useRef<Set<string>>(new Set());
@@ -653,6 +654,10 @@ export default function CreativeAgentPageNew() {
 
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
+    // 持久化到sessionStorage：刷新/回退后可恢复
+    if (activeSessionId) {
+      try { sessionStorage.setItem('creative_session_id', activeSessionId); } catch {}
+    }
   }, [activeSessionId]);
 
   const filteredSessions = sessions.filter((session) => {
@@ -843,7 +848,12 @@ export default function CreativeAgentPageNew() {
         const data = await res.json();
         const nextSessions = (data?.data?.sessions || []) as CreativeSession[];
         setSessions(nextSessions);
-        if (nextSessions.length > 0) {
+        // 恢复上次会话（sessionStorage持久化）
+        let savedSessionId: string | null = null;
+        try { savedSessionId = sessionStorage.getItem('creative_session_id'); } catch {}
+        if (savedSessionId && nextSessions.some(s => s.id === savedSessionId)) {
+          setActiveSessionId(savedSessionId);
+        } else if (nextSessions.length > 0) {
           setActiveSessionId(nextSessions[0].id);
         } else {
           setActiveSessionId(null);
@@ -1577,6 +1587,7 @@ export default function CreativeAgentPageNew() {
               setIsLoading(false);
               streamingMessageIdRef.current = null;
               streamAbortRef.current = null;
+              sseRetryAttemptedRef.current = false;
               setSessionPhase('idle');
               loadSessions({ preferredSessionId: activeSessionId });
               break;
@@ -1589,6 +1600,14 @@ export default function CreativeAgentPageNew() {
             return;
           }
           addDebugLog('error', 'SSE 流错误', { message: error.message });
+          // 自动重试一次
+          if (!sseRetryAttemptedRef.current) {
+            sseRetryAttemptedRef.current = true;
+            addDebugLog('api', 'SSE自动重试', {});
+            handleSend(inputValue);
+            return;
+          }
+          sseRetryAttemptedRef.current = false;
           setIsLoading(false);
           streamingMessageIdRef.current = null;
           streamAbortRef.current = null;
@@ -1598,10 +1617,11 @@ export default function CreativeAgentPageNew() {
             {
               id: generateId('msg'),
               type: 'system',
-              content: '网络波动或服务超时，已自动停止本次请求。你可以重试。',
+              content: '网络波动或服务超时。你可以 重试发送 或 刷新页面。',
               timestamp: new Date(),
             },
           ]);
+          toast.error('连接中断，请重试');
         },
         controller.signal
       );
