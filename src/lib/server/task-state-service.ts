@@ -1,18 +1,24 @@
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { MessagePart } from '@/lib/agent-sse';
 
+// Worker任务状态机：管理所有后台任务的完整生命周期
+// 调用链：chat/route.ts → ensureTask(创建/复用) → transitionTask(状态流转) → aggregateTaskFromItems(子任务聚合→终态)
+// 查询链：tasks/route.ts GET 读取 + POST retry/cancel
+// 清理链：tasks/route.ts GET 时自动收敛 stale 任务(15min running / 30min queued) + retry 时清旧数据
 type WorkerTaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'partial_succeeded';
 interface WorkerTaskItemStatusRow {
   status?: string | null;
 }
 
+// 终态(succeeded/failed/cancelled)没有出边——只能通过retry回queued
+// partial_succeeded: 部分子任务成功，可继续跑也可手工retry
 const ALLOWED_TRANSITIONS: Record<WorkerTaskStatus, WorkerTaskStatus[]> = {
   queued: ['running', 'cancelled', 'failed'],
   running: ['succeeded', 'failed', 'cancelled', 'partial_succeeded'],
   partial_succeeded: ['running', 'succeeded', 'failed', 'cancelled'],
   succeeded: [],
-  failed: ['queued'],
-  cancelled: ['queued'],
+  failed: ['queued'],       // retry
+  cancelled: ['queued'],    // retry
 };
 
 interface EnsureTaskInput {

@@ -184,6 +184,10 @@ export function getXiaohaiSystemPromptV3(userContext?: {
 3. **生成脚本** - 根据需求生成专业的视频分镜脚本
 4. **创作视频** - 调用 AI 生成高质量视频
 
+// 提示词声称34个工具，但实际 agent-tools-service.ts 注册24个。
+// 差异在于提示词单独列出了 learning-library 和 memory 工具子类别，
+// 其中部分工具（get_learning_library等）通过 AgentToolsService 暴露，其他通过独立服务。
+// 修改工具时需同步更新此处和 agent-tools-service.ts 的 getAllTools()。
 ## 🛠️ 你可以使用的工具（34个）
 
 ### 用户偏好类（2个）

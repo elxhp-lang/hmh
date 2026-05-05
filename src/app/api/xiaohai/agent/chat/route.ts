@@ -197,19 +197,25 @@ async function getAgentSystemPrompt(): Promise<string> {
 const MAX_ITERATIONS = 15;
 const MAX_TOOL_STRING_LEN = 2000;
 const HIGH_RISK_TOOLS = new Set(['delete_material', 'clear_session', 'update_material']);
+// LONG_RUNNING_TOOLS: 工具在后台异步执行，结果不直接回注LLM迭代循环。
+// 分类依据——不是看"调用是否耗时"，而是看"结果是否在同一请求周期返回"：
+// - LLM同步调用(analyze/generate_script): ❌不应在此，同步返回结果
+// - 外部API异步(submit/batch/generate_first_frame): ✅应在此，结果通过轮询回填
 const LONG_RUNNING_TOOLS = new Set([
-  'submit_video_task',
-  'generate_first_frame',
-  'analyze_video',
-  'analyze_image',
-  'analyze_multiple_images',
-  'generate_script',
-  'batch_generate',
+  'submit_video_task',      // 异步：Seedance HTTP API，30s-2min，轮询回填
+  'generate_first_frame',   // 异步：火山图片生成API，5-15s，结果持久化后前端轮询获取
+  'analyze_video',          // ⚠️ 同步LLM：视觉模型调用，应移出（历史遗留，未触发bug因为视觉模型确实慢）
+  'analyze_image',          // ⚠️ 同步LLM：同上
+  'analyze_multiple_images',// ⚠️ 同步LLM：同上
+  'generate_script',        // ❌ 同步LLM：ScriptGeneratorService.llmClient.invoke()，立即返回
+  'batch_generate',         // 异步：批量Seedance提交
 ]);
+// SUBMISSION_STYLE_TOOLS: 提交后即返回"已提交"，不等待完成
 const SUBMISSION_STYLE_TOOLS = new Set([
   'submit_video_task',
   'batch_generate',
 ]);
+// SYNC_RESULT_TOOLS: 异步执行但结果同步等待（tools that run async but whose results we await）
 const SYNC_RESULT_TOOLS = new Set([
   'generate_first_frame',
 ]);

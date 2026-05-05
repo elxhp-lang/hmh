@@ -539,11 +539,11 @@ export class VideoGenerationPoller {
   }
 }
 
-// 全局单例
+// 全局单例：生产环境一个进程只有一个轮询器
+// 开发模式每次都返回新实例（HMR会重建模块），旧timer由GC回收
 let pollerInstance: VideoGenerationPoller | null = null;
 
 export function getVideoPoller(): VideoGenerationPoller {
-  // 开发环境下每次都返回新实例，确保代码更新生效
   const isDev = process.env.NODE_ENV !== 'production';
   if (isDev) {
     console.log('[VideoPoller] 开发环境，返回新实例');

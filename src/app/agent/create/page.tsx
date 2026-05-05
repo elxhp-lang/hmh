@@ -1411,6 +1411,7 @@ export default function CreativeAgentPageNew() {
         (event: SSEEvent) => {
           addDebugLog('sse', `收到 SSE 事件: ${event.type}`, event);
           
+          // SSE事件处理——当前实现未覆盖: 'error'(静默丢失) 'task'(仅靠8秒轮询)
           switch (event.type) {
             case 'start':
               currentText = '';
