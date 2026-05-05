@@ -1565,7 +1565,6 @@ export default function CreativeAgentPageNew() {
               streamAbortRef.current = null;
               sseRetryAttemptedRef.current = false;
               setSessionPhase('idle');
-              loadSessions({ preferredSessionId: activeSessionId });
               break;
           }
         },
