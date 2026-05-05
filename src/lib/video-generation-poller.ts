@@ -109,17 +109,21 @@ export class VideoGenerationPoller {
     return this._videosColumnCache;
   }
 
-  private async findWorkerTask(videoId: string, userId: string): Promise<{ id: string; sessionId: string | null } | null> {
+  private async findWorkerTask(videoId: string, userId: string): Promise<{ id: string; sessionId: string | null; outputData: Record<string, unknown> | null } | null> {
     const { data } = await this.supabase
       .from('worker_tasks')
-      .select('id,session_id')
+      .select('id,session_id,output_data')
       .eq('user_id', userId)
       .eq('task_type', 'video_generate')
       .contains('input_data', { video_id: videoId })
       .order('created_at', { ascending: false })
       .limit(1);
     const first = Array.isArray(data) ? data[0] : null;
-    if (first?.id) return { id: String(first.id), sessionId: first.session_id ? String(first.session_id) : null };
+    if (first?.id) return {
+      id: String(first.id),
+      sessionId: first.session_id ? String(first.session_id) : null,
+      outputData: (first.output_data && typeof first.output_data === 'object') ? first.output_data as Record<string, unknown> : null,
+    };
 
     // fallback: reverse lookup from task_events.external_task_ids when input_data.video_id missing
     const { data: videoData } = await this.supabase
@@ -145,6 +149,7 @@ export class VideoGenerationPoller {
     return {
       id: String(eventRow.task_id),
       sessionId: eventRow.session_id ? String(eventRow.session_id) : null,
+      outputData: null,
     };
   }
 
@@ -260,9 +265,11 @@ export class VideoGenerationPoller {
         await this.updateStatus(videoId, 'processing');
         const workerTask = await this.findWorkerTask(videoId, userId);
         if (workerTask) {
+          // 合并而非覆盖：保留 submit_result 等已有数据，只追加轮询状态
+          const existingOutput = workerTask.outputData || {};
           await this.taskStateService.transitionTask(workerTask.id, 'running', {
             progress: (taskStatus.status || '').toLowerCase() === 'running' ? 55 : 20,
-            output_data: { video_id: videoId, seedance_status: normalizedStatus },
+            output_data: { ...existingOutput, seedance_status: normalizedStatus },
           });
           if (workerTask.sessionId) {
             await this.taskStateService.appendEvent(workerTask.id, userId, workerTask.sessionId, 'video_generate_polling', {
@@ -327,14 +334,11 @@ export class VideoGenerationPoller {
       }
       const workerTask = await this.findWorkerTask(videoId, userId);
       if (workerTask) {
+        const existingOutput = workerTask.outputData || {};
         await this.taskStateService.transitionTask(workerTask.id, 'succeeded', {
           progress: 100,
           completed_at: new Date().toISOString(),
-          output_data: {
-            video_id: videoId,
-            public_video_url: publicVideoUrl,
-            tos_key: tosKey,
-          },
+          output_data: { ...existingOutput, video_id: videoId, public_video_url: publicVideoUrl, tos_key: tosKey },
         });
         if (workerTask.sessionId) {
           await this.taskStateService.appendEvent(workerTask.id, userId, workerTask.sessionId, 'video_generate_succeeded', {
@@ -393,11 +397,12 @@ export class VideoGenerationPoller {
     if (video?.user_id) {
       const workerTask = await this.findWorkerTask(videoId, String(video.user_id));
       if (workerTask) {
+        const existingOutput = workerTask.outputData || {};
         await this.taskStateService.transitionTask(workerTask.id, 'failed', {
           progress: 100,
           completed_at: new Date().toISOString(),
           error_message: errorReason,
-          output_data: { video_id: videoId },
+          output_data: { ...existingOutput, video_id: videoId },
         });
         if (workerTask.sessionId) {
           await this.taskStateService.appendEvent(workerTask.id, String(video.user_id), workerTask.sessionId, 'video_generate_failed', {
