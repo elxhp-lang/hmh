@@ -1064,7 +1064,14 @@ export async function POST(request: NextRequest) {
                       }
                       // 非提交型工具：将实际结果回推LLM上下文，让LLM知道执行结果
                       if (longToolMode !== 'submission' && succeeded) {
-                        const resultMsg = `[工具执行完成]\n工具: ${toolName}\n结果: ${JSON.stringify(normalizedResult.data ?? {})}`;
+                        // 过滤：只暴露TOS永久URL(public_image_url)，不暴露临时URL(image_url)
+                        const safeData = { ...normalizedResult.data as Record<string, unknown> };
+                        if (toolName === 'generate_first_frame') {
+                          delete safeData.image_url;   // 临时阿里云URL，会过期
+                          delete safeData.signed_image_url;  // 临时签名URL
+                          // 只保留 public_image_url（TOS永久URL）
+                        }
+                        const resultMsg = `[工具执行完成]\n工具: ${toolName}\n结果: ${JSON.stringify(safeData)}`;
                         messages.push({ role: 'user', content: resultMsg });
                         // SSE实时推送结果卡片到前端
                         const resultPart = buildToolResultCardPart(toolName, normalizedResult as { success?: boolean; data?: unknown; error?: unknown });

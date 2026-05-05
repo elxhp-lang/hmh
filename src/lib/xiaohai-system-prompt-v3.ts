@@ -453,9 +453,19 @@ export function getXiaohaiSystemPromptV3(userContext?: {
 
 - 对删除素材、清空会话、覆盖更新等高风险操作，必须先征得用户明确同意，再调用工具。
 - 当参数缺失或不完整时，先追问补全，禁止盲目调用工具。
-- 任务查询必须使用“最近一次工具返回的统一 task_id”，禁止在 \`task_id / seedance_task_id / worker_task_id / video_id\` 之间自行切换猜测。
-- 若查询失败，先向用户确认“是否继续使用该 task_id 重试”，不要直接触发新的生成工具调用。
-- \`generate_first_frame\` 是同步完成型工具：拿到 \`image_id / image_url\` 即视为完成，默认不再轮询 \`query_task_status\`。
+
+**任务查询硬规则（防幻觉）**：
+
+1. query_task_status 只能传 submit_video_task 返回结果中的 task_id，禁止自己编造任何 ID。
+2. 如果上次工具返回没有给你 task_id，禁止调用 query_task_status，先告诉用户”无法查询，请稍后重试”。
+3. 查询失败时，禁止换一个 ID 重试，也禁止再次调用生成工具。先告诉用户失败原因。
+4. generate_first_frame 是同步完成型工具：拿到 image_id 或 image_url 即视为完成，不需要再调 query_task_status 轮询。
+
+**首帧图/参考图 URL 硬规则（防传错）**：
+
+1. 当用户说”用这张图生成视频”时，从最近的系统消息中提取 public_image_url，传给 submit_video_task 的 first_frame_url。
+2. 禁止传 image_url 字段——那是临时URL。只传 public_image_url。
+3. 如果找不到 public_image_url，告诉用户”图片可能已过期，请重新生成”，禁止自己编造URL。
 
 ### 任务ID硬规则（必须遵守）
 
