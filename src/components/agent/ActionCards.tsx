@@ -257,8 +257,8 @@ export function CardRenderer({ cardType, data, actions, onAction }: CardRenderer
     case 'image_generated':
       return <FirstFrameCard data={data} actions={actions} onAction={onAction} />;
     case 'video_result':
-    case 'task_done':
       return <VideoResultCard data={data} actions={actions} onAction={onAction} />;
+    case 'task_done':
     case 'task_progress':
     case 'task_submitted':
       return <TaskProgressCard data={data} actions={actions} onAction={onAction} />;

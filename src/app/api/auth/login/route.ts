@@ -4,6 +4,20 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+
+// 登录限流：每IP每分钟最多5次
+const loginRateMap = new Map<string, { count: number; resetAt: number }>();
+function checkLoginRate(ip: string): boolean {
+  const now = Date.now();
+  const entry = loginRateMap.get(ip);
+  if (!entry || now > entry.resetAt) {
+    loginRateMap.set(ip, { count: 1, resetAt: now + 60000 });
+    return true;
+  }
+  if (entry.count >= 5) return false;
+  entry.count++;
+  return true;
+}
 interface LoginUserRow {
   id: string;
   username: string;
@@ -25,6 +39,11 @@ function isLoginUserRow(value: unknown): value is LoginUserRow {
  * POST /api/auth/login
  */
 export async function POST(request: NextRequest) {
+  const clientIp = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
+  if (!checkLoginRate(clientIp)) {
+    return NextResponse.json({ error: '登录尝试过于频繁，请稍后再试' }, { status: 429 });
+  }
+
   try {
     const { username, password } = await request.json();
 

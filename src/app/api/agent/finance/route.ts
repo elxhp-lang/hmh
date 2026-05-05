@@ -268,6 +268,9 @@ export async function POST(request: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: '未授权' }, { status: 401 });
   }
+  if (user.role !== 'super_admin' && user.role !== 'finance') {
+    return NextResponse.json({ error: '权限不足：仅财务角色可访问' }, { status: 403 });
+  }
 
   const userId = user.userId;
 

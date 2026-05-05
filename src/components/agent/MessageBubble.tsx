@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import NextImage from 'next/image';
 import { cn } from '@/lib/utils';
 import { RichMessageContent } from '@/components/agent/RichMessageContent';
@@ -293,26 +293,3 @@ export function MessageGroup({ messages, showTimestamps = true, onCardAction }: 
   );
 }
 
-// ========== 打字机效果 Hook ==========
-
-export function useTypewriter(text: string, speed: number = 30) {
-  const [displayedText, setDisplayedText] = useState('');
-  
-  useEffect(() => {
-    setDisplayedText('');
-    
-    let index = 0;
-    const timer = setInterval(() => {
-      if (index < text.length) {
-        setDisplayedText(text.slice(0, index + 1));
-        index++;
-      } else {
-        clearInterval(timer);
-      }
-    }, speed);
-    
-    return () => clearInterval(timer);
-  }, [text, speed]);
-  
-  return displayedText;
-}

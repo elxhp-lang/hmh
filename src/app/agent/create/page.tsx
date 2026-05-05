@@ -144,7 +144,7 @@ function DebugPanel({ logs, onClear, onExport }: { logs: DebugLog[]; onClear: ()
     </div>
   );
 }
-import { RightSidebar, CreationOption, TemplateItem, HistoryItem, MaterialItem, WorkerTaskItem } from '@/components/agent/RightSidebar';
+import { RightSidebar, CreationOption, HistoryItem, MaterialItem, WorkerTaskItem } from '@/components/agent/RightSidebar';
 
 // ========== 类型定义 ==========
 
@@ -613,7 +613,6 @@ export default function CreativeAgentPageNew() {
   });
   
   // 右侧数据
-  const [templates] = useState<TemplateItem[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [materials, setMaterials] = useState<MaterialItem[]>([]);
   const [workerTasks, setWorkerTasks] = useState<WorkerTaskItem[]>([]);
@@ -1224,6 +1223,11 @@ export default function CreativeAgentPageNew() {
         }
         break;
       }
+      case 'navigate': {
+        const path = typeof cardAction.payload?.path === 'string' ? cardAction.payload.path : '';
+        if (path) window.location.href = path;
+        break;
+      }
       default:
         break;
     }
@@ -1399,6 +1403,25 @@ export default function CreativeAgentPageNew() {
               }
               break;
               
+            case 'error':
+              console.error('[SSE] 后端错误:', event.content);
+              setSendError(event.content || '服务器处理出错');
+              break;
+
+            case 'task':
+              // 实时任务状态更新：立即同步到workerTasks
+              if (event.data && typeof event.data === 'object') {
+                const td = event.data as { taskId?: unknown; status?: unknown; note?: unknown };
+                const rawStatus = typeof td.status === 'string' ? td.status : '';
+                const validStatuses = ['queued', 'running', 'succeeded', 'failed', 'cancelled', 'partial_succeeded'] as const;
+                if (td.taskId && (validStatuses as readonly string[]).includes(rawStatus)) {
+                  setWorkerTasks(prev => prev.map(t =>
+                    t.id === td.taskId ? { ...t, status: rawStatus as WorkerTaskItem['status'] } : t
+                  ));
+                }
+              }
+              break;
+
             case 'content':
             case 'text':
               currentText += event.content || '';
@@ -2034,7 +2057,7 @@ export default function CreativeAgentPageNew() {
           <RightSidebar
             creationOptions={creationOptions}
             onCreationOptionsChange={setCreationOptions}
-            templates={templates}
+            templates={[]}
             history={history}
             materials={materials}
             tasks={workerTasks}

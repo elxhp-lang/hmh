@@ -110,6 +110,19 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'retry') {
+      // 检查重试次数
+      const { data: existingTask } = await supabase
+        .from('worker_tasks')
+        .select('retry_count,max_retries')
+        .eq('id', taskId)
+        .eq('user_id', userId)
+        .single();
+      const maxRetries = (existingTask as { max_retries?: number } | null)?.max_retries ?? 3;
+      const currentRetries = (existingTask as { retry_count?: number } | null)?.retry_count ?? 0;
+      if (currentRetries >= maxRetries) {
+        return fail(`已达最大重试次数 (${maxRetries})`, 400);
+      }
+
       const { data, error } = await supabase
         .from('worker_tasks')
         .update({
@@ -119,7 +132,7 @@ export async function POST(request: NextRequest) {
           started_at: null,
           completed_at: null,
           error_message: null,
-          retry_count: 0,
+          retry_count: currentRetries + 1,
           updated_at: new Date().toISOString(),
         })
         .eq('id', taskId)

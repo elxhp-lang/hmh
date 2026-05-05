@@ -32,7 +32,7 @@ export function verifyToken(token: string): TokenPayload | null {
  * 从请求头中提取并验证token
  */
 export function getUserFromRequest(request: Request): TokenPayload | null {
-  const authHeader = request.headers.get('Authorization');
+  const authHeader = request.headers.get('authorization') || request.headers.get('Authorization');
   if (!authHeader) return null;
   
   return verifyToken(authHeader);
