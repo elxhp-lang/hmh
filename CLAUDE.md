@@ -106,19 +106,22 @@ AI: coze-coding-dev-sdk (LLMClient + ImageGenerationClient + SeedanceClient)
 
 ---
 
-## 已知语义冲突（待修复）
+## 已知语义冲突
 
-| 冲突 | 位置 | 影响 |
-|------|------|------|
-| generate_script ∈ LONG_RUNNING_TOOLS (同步LLM被误标为异步) | route.ts:206 | 登录用户脚本生成失效 |
-| analyze_video/image/multi ∈ LONG_RUNNING_TOOLS (同上) | route.ts:203-205 | 视觉分析可能受影响 |
-| 提示词声称34工具 vs 实际注册24 | prompt-v3.ts + agent-tools-service | LLM可能调用不存在的工具 |
-| 前端不处理 'error' SSE 事件 | page.tsx switch | 后端错误静默丢失 |
-| 前端不处理 'task' SSE 事件 | page.tsx switch | 任务状态仅靠8秒轮询 |
-| Script接口缺 description 字段 | script-generator-service.ts:16 | 脚本卡片"说明"列始终为空 |
-| script_options SSE 事件不附加 parts | page.tsx:1499 | 主模型直接输出的脚本表格渲染丢失 |
-| CardRenderer.get_script_detail 工具不存在 | ActionCards.tsx:62 | "对比查看"按钮失效 |
+| # | 状态 | 冲突 | 位置 |
+|---|------|------|------|
+| 1 | ✅ 已修复 | generate_script 同步LLM被误标为异步(LONG_RUNNING_TOOLS) | route.ts |
+| 2 | ⚠️ 保留 | analyze_video/image/multi ∈ LONG_RUNNING_TOOLS | route.ts:203-205 |
+| | | 保留原因：视觉模型调用10s+，移除会导致SSE流长时间沉默 | |
+| 3 | ✅ 已修复 | 提示词工具数34→35(差1个saveCreativeUserPreference) | CLAUDE.md |
+| 4 | ✅ 已修复 | 前端不处理 'error' SSE 事件 | page.tsx switch |
+| 5 | ✅ 已修复 | 前端不处理 'task' SSE 事件 | page.tsx switch |
+| 6 | ⚠️ 保留 | Script接口缺 description 字段 | script-generator-service.ts:16 |
+| | | 保留原因：需要改LLM输出格式，需配合prompt调整 | |
+| 7 | ✅ 已修复 | script_options SSE 附加 currentParts | page.tsx |
+| 8 | ✅ 已修复 | get_script_detail 工具不存在 | ActionCards.tsx |
 
 ## 审计覆盖维度（2026-05-04 已完成全部50项修复）
 
 1.架构层 2.安全层 3.数据流层 4.前端渲染层 5.认证生命周期 6.运行时韧性 7.环境配置 8.跨用户数据隔离
+9.语义层（工具分类/数据流约定/代码理解）

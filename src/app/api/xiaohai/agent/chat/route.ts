@@ -204,10 +204,9 @@ const HIGH_RISK_TOOLS = new Set(['delete_material', 'clear_session', 'update_mat
 const LONG_RUNNING_TOOLS = new Set([
   'submit_video_task',      // 异步：Seedance HTTP API，30s-2min，轮询回填
   'generate_first_frame',   // 异步：火山图片生成API，5-15s，结果持久化后前端轮询获取
-  'analyze_video',          // ⚠️ 同步LLM：视觉模型调用，应移出（历史遗留，未触发bug因为视觉模型确实慢）
-  'analyze_image',          // ⚠️ 同步LLM：同上
-  'analyze_multiple_images',// ⚠️ 同步LLM：同上
-  'generate_script',        // ❌ 同步LLM：ScriptGeneratorService.llmClient.invoke()，立即返回
+  'analyze_video',          // 异步保留：视觉模型调用10s+，等待会阻塞SSE流。结果进task_items由前端轮询
+  'analyze_image',          // 异步保留：同上
+  'analyze_multiple_images',// 异步保留：同上
   'batch_generate',         // 异步：批量Seedance提交
 ]);
 // SUBMISSION_STYLE_TOOLS: 提交后即返回"已提交"，不等待完成

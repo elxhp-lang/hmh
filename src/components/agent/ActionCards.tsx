@@ -59,7 +59,6 @@ export function ScriptCard({ data, actions, onAction }: ScriptCardProps) {
   const defaultActions: CardAction[] = [
     { id: 'select_script', label: '选这个', action: 'send', payload: { message: `我选择「${title}」，请用这个脚本生成视频` } },
     { id: 'modify_script', label: '修改', action: 'send', payload: { message: `我想修改「${title}」脚本` } },
-    { id: 'compare_scripts', label: '对比查看', action: 'tool_call', payload: { tool: 'get_script_detail' } },
   ];
 
   return (

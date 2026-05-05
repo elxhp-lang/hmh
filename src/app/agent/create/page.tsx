@@ -1501,6 +1501,15 @@ export default function CreativeAgentPageNew() {
               const options = normalizeScriptOptions(event.data);
               if (options.length > 0) {
                 currentScripts = options;
+                // 同步附加到 currentParts：确保脚本表格在 done 时被保留到消息 parts
+                const rows = options.map((s: { id?: string; title?: string; description?: string; content?: string }) => [
+                  s.title || '', s.description || '', (s.content || '').slice(0, 200)
+                ]);
+                currentParts.push({
+                  type: 'card',
+                  cardType: 'script',
+                  data: { title: '脚本候选方案', columns: ['方案', '说明', '内容预览'], rows },
+                } as MessagePart);
               }
               break;
             }
