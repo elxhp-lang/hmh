@@ -1072,14 +1072,17 @@ export async function POST(request: NextRequest) {
                         // 持久化：下次对话加载历史时LLM可见
                         try {
                           const persistSupabase = getSupabaseClient();
-                          await persistSupabase.from('agent_conversation_messages').insert({
+                          const insertResult = await persistSupabase.from('agent_conversation_messages').insert({
                             user_id: userId,
                             session_id: session.id,
                             role: 'system',
                             content: resultMsg,
                             parts: [resultPart],
                           });
-                        } catch { /* 非关键路径，不影响主流程 */ }
+                          console.log(`📨 [AsyncResult] 系统消息已注入: tool=${toolName}, session=${session.id}, inserted=${!!insertResult}`);
+                        } catch (e) {
+                          console.error(`❌ [AsyncResult] 系统消息注入失败: tool=${toolName}, session=${session.id}, error=`, e instanceof Error ? e.message : e);
+                        }
                         // 调用LLM生成主动回复，让用户感知任务完成
                         try {
                           const { LLMClient, Config } = await import('coze-coding-dev-sdk');
@@ -1103,7 +1106,9 @@ export async function POST(request: NextRequest) {
                               content: replyText.trim(),
                             });
                           }
-                        } catch { /* LLM调用失败不影响主流程 */ }
+                        } catch (e) {
+                          console.error(`❌ [AsyncResult] LLM主动回复生成失败: tool=${toolName}, error=`, e instanceof Error ? e.message : e);
+                        }
                       }
                     } catch (toolError) {
                       await taskStateService.appendTaskItem({

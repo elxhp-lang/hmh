@@ -524,9 +524,10 @@ export class VideoGenerationPoller {
 
       // 注入系统消息（LLM上下文可见）+ LLM生成主动回复
       const parts = isSuccess ? [{ type: 'card' as const, cardType: 'video_result', data: { video_name: videoName, public_video_url: publicVideoUrl, video_id: videoId } }] : null;
-      await this.supabase.from('agent_conversation_messages').insert({
+      const insertRes = await this.supabase.from('agent_conversation_messages').insert({
         user_id: userId, session_id: workerTask.sessionId, role: 'system', content, parts,
       });
+      console.log(`📨 [VideoPoller] 系统消息注入: videoId=${videoId}, session=${workerTask.sessionId}, status=${status}, inserted=${!!insertRes}`);
       // LLM生成主动回复
       if (isSuccess) {
         try {
@@ -542,12 +543,13 @@ export class VideoGenerationPoller {
             await this.supabase.from('agent_conversation_messages').insert({
               user_id: userId, session_id: workerTask.sessionId, role: 'assistant', content: t.trim(),
             });
+            console.log(`📨 [VideoPoller] LLM主动回复已注入: videoId=${videoId}`);
           }
-        } catch { /* LLM失败不影响 */ }
+        } catch (e) { console.error(`❌ [VideoPoller] LLM主动回复生成失败: videoId=${videoId}, error=`, e instanceof Error ? e.message : e); }
       }
       console.log(`[VideoPoller] 对话消息已注入: session=${workerTask.sessionId}, status=${status}`);
     } catch (error) {
-      console.error('[VideoPoller] 注入对话消息失败:', error instanceof Error ? error.message : error);
+      console.error('[VideoPoller] 注入对话消息失败:', error instanceof Error ? error.message : error, error instanceof Error ? error.stack : '');
     }
   }
 }
