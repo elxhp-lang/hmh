@@ -1068,6 +1068,9 @@ export async function POST(request: NextRequest) {
                           });
                         }
                       } else {
+                      // 删除初始 running 项，防止 aggregate 时被遗留 running 状态卡住
+                      void getSupabaseClient().from('worker_task_items').delete()
+                        .eq('task_id', runtimeTaskId).eq('status', 'running');
                       await taskStateService.appendTaskItem({
                         taskId: runtimeTaskId,
                         userId,

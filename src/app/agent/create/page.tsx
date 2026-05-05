@@ -1343,8 +1343,11 @@ export default function CreativeAgentPageNew() {
       return newMessages;
     });
     addDebugLog('state', '添加用户消息到 messages', { messagesCount: messages.length + 1 });
-    
+
     setAttachments([]);
+    // 让React在SSE流启动前先渲染用户消息，避免用户看到"发送后空白"
+    await new Promise(r => setTimeout(r, 20));
+
     setIsLoading(true);
     setSendError(null);
     setSessionPhase('streaming');
