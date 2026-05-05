@@ -1600,28 +1600,13 @@ export default function CreativeAgentPageNew() {
             return;
           }
           addDebugLog('error', 'SSE 流错误', { message: error.message });
-          // 自动重试一次
-          if (!sseRetryAttemptedRef.current) {
-            sseRetryAttemptedRef.current = true;
-            addDebugLog('api', 'SSE自动重试', {});
-            handleSend(inputValue);
-            return;
-          }
           sseRetryAttemptedRef.current = false;
           setIsLoading(false);
           streamingMessageIdRef.current = null;
           streamAbortRef.current = null;
           setSessionPhase('idle');
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: generateId('msg'),
-              type: 'system',
-              content: '网络波动或服务超时。你可以 重试发送 或 刷新页面。',
-              timestamp: new Date(),
-            },
-          ]);
-          toast.error('连接中断，请重试');
+          setSendError('连接中断，点击发送按钮重试');
+          toast.error('连接中断，请重试发送');
         },
         controller.signal
       );

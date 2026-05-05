@@ -24,13 +24,12 @@ function handleAuthExpired(): void {
 }
 
 /** 检查响应：401时自动登出，返回已读取的body供后续使用 */
-async function interceptAuthResponse(response: Response): Promise<{ body: unknown; handled: boolean }> {
+async function interceptAuthResponse(response: Response): Promise<{ body: unknown; handled: boolean; newToken: string | null }> {
   if (response.status === 401) {
     const body = await response.json().catch(() => ({}));
     const msg = typeof (body as Record<string, unknown>).error === 'string' ? (body as Record<string, unknown>).error as string : '';
     if (msg.includes('expired') || msg.includes('过期') || msg.includes('无效') || msg.includes('invalid') || msg.includes('Token')) {
-      // 先尝试刷新Token
-      let refreshed = false;
+      let newToken: string | null = null;
       try {
         const currentToken = typeof window !== 'undefined' ? localStorage.getItem('haimeng_token') : null;
         if (currentToken) {
@@ -39,23 +38,41 @@ async function interceptAuthResponse(response: Response): Promise<{ body: unknow
             const refreshData = await refreshRes.json();
             if (refreshData.token) {
               localStorage.setItem('haimeng_token', refreshData.token);
-              refreshed = true;
+              newToken = refreshData.token;
             }
           }
         }
-      } catch { /* 刷新失败，继续登出 */ }
-      if (!refreshed) {
+      } catch { /* 刷新失败 */ }
+      if (!newToken) {
         handleAuthExpired();
+        return { body, handled: true, newToken: null };
       }
-      return { body, handled: !!refreshed ? false : true };
+      return { body, handled: false, newToken };
     }
-    return { body, handled: false };
+    return { body, handled: false, newToken: null };
   }
   if (response.status === 403) {
     const body = await response.json().catch(() => ({}));
-    return { body, handled: false };
+    return { body, handled: false, newToken: null };
   }
-  return { body: null, handled: false };
+  return { body: null, handled: false, newToken: null };
+}
+
+/** 带Token刷新的fetch包装：401时自动刷新并重试一次 */
+async function fetchWithAuthRetry(
+  url: string,
+  options: RequestInit & { _token?: string | null }
+): Promise<Response> {
+  const { signal } = options;
+  const response = await fetch(url, options);
+  if (signal?.aborted) throw new ApiError('请求已取消', 0);
+  const { handled, newToken } = await interceptAuthResponse(response);
+  if (handled) throw new ApiError('Token已过期，请重新登录', 401);
+  if (newToken && options.headers) {
+    const headers = { ...options.headers as Record<string, string>, Authorization: `Bearer ${newToken}` };
+    return fetch(url, { ...options, headers });
+  }
+  return response;
 }
 
 interface RequestOptions {
@@ -91,16 +108,13 @@ export async function apiRequest<T>(endpoint: string, options: RequestOptions = 
     finalHeaders['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(url, {
+  const response = await fetchWithAuthRetry(url, {
     method,
     headers: finalHeaders,
     body: isFormData ? body as FormData : (body ? JSON.stringify(body) : undefined),
   });
 
-  const { body: preReadBody, handled: authExpired } = await interceptAuthResponse(response);
-  if (authExpired) throw new ApiError('Token已过期，请重新登录', 401);
-
-  const data = preReadBody ?? (await response.json());
+  const data = await response.json();
 
   if (!response.ok) {
     throw new ApiError(typeof data === 'object' && data && 'error' in data ? (data as Record<string, unknown>).error as string : '请求失败', response.status, data);
@@ -116,18 +130,13 @@ export async function uploadFile(
   token: string
 ): Promise<unknown> {
   const url = `${API_BASE}${endpoint}`;
-  const response = await fetch(url, {
+  const response = await fetchWithAuthRetry(url, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: { Authorization: `Bearer ${token}` },
     body: formData,
   });
 
-  const { body: preReadBody, handled: authExpired } = await interceptAuthResponse(response);
-  if (authExpired) throw new ApiError('Token已过期，请重新登录', 401);
-
-  const data = preReadBody ?? (await response.json());
+  const data = await response.json();
 
   if (!response.ok) {
     throw new ApiError(typeof data === 'object' && data && 'error' in data ? (data as Record<string, unknown>).error as string : '上传失败', response.status, data);
@@ -148,7 +157,7 @@ export async function streamRequest(
   const url = `${API_BASE}${endpoint}`;
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithAuthRetry(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -157,10 +166,8 @@ export async function streamRequest(
       body: JSON.stringify(body),
     });
 
-    const { body: preReadBody, handled: authExpired } = await interceptAuthResponse(response);
-    if (authExpired) throw new ApiError('Token已过期，请重新登录', 401);
     if (!response.ok) {
-      const data = preReadBody;
+      const data = await response.json();
       throw new ApiError(typeof data === 'object' && data && 'error' in data ? (data as Record<string, unknown>).error as string : '请求失败', response.status, data);
     }
 
@@ -230,7 +237,7 @@ export async function streamAgentRequest(
   const url = `${API_BASE}${endpoint}`;
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithAuthRetry(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -238,12 +245,10 @@ export async function streamAgentRequest(
       },
       body: JSON.stringify(body),
       signal,
-    });
+    } as RequestInit);
 
-    const { body: preReadBody, handled: authExpired } = await interceptAuthResponse(response);
-    if (authExpired) throw new ApiError('Token已过期，请重新登录', 401);
     if (!response.ok) {
-      const data = preReadBody;
+      const data = await response.json();
       throw new ApiError(typeof data === 'object' && data && 'error' in data ? (data as Record<string, unknown>).error as string : '请求失败', response.status, data);
     }
 
