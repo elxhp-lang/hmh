@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { verifyToken } from '@/lib/auth';
 import { sendApprovalResultNotification, ASSIGNABLE_ROLES, type AssignableRole } from '@/lib/feishu-webhook';
 interface ApproveUserRow {
   username: string;
@@ -20,6 +21,17 @@ function isApproveUserRow(value: unknown): value is ApproveUserRow {
  * }
  */
 export async function POST(request: NextRequest) {
+  // 认证 + 权限：仅 super_admin
+  const authHeader = request.headers.get('authorization') || request.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return NextResponse.json({ success: false, message: '未授权' }, { status: 401 });
+  }
+  const token = authHeader.slice(7);
+  const user = await verifyToken(token);
+  if (!user || user.role !== 'super_admin') {
+    return NextResponse.json({ success: false, message: '权限不足' }, { status: 403 });
+  }
+
   try {
     const body = await request.json();
     const { user_id, action, role } = body;

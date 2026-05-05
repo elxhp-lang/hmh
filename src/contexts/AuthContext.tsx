@@ -67,8 +67,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(newToken);
     setUser(newUser);
     if (typeof window !== 'undefined') {
-      localStorage.setItem(TOKEN_KEY, newToken);
-      localStorage.setItem(USER_KEY, JSON.stringify(newUser));
+      try {
+        localStorage.setItem(TOKEN_KEY, newToken);
+        localStorage.setItem(USER_KEY, JSON.stringify(newUser));
+      } catch {
+        console.error('[Auth] localStorage 写入失败（可能已满）');
+      }
     }
   };
 

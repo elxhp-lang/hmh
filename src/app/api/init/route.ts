@@ -25,6 +25,12 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  // 仅内部调用：验证请求来自可信源（Coze部署环境）
+  const isInternal = process.env.COZE_PROJECT_ENV;
+  if (!isInternal) {
+    return NextResponse.json({ error: '仅内部可调用' }, { status: 403 });
+  }
+
   try {
     console.log('[项目初始化] 开始初始化...');
 

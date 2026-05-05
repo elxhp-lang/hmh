@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 获取模板
-    const templateResult = await templateService.getTemplate(template_id);
+    const templateResult = await templateService.getTemplate(template_id, userId);
     if (!templateResult.success || !templateResult.data) {
       return NextResponse.json({ error: '模板不存在' }, { status: 404 });
     }

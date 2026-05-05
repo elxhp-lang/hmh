@@ -316,10 +316,11 @@ export class FinanceToolExecutor {
     const { data: bills } = await this.supabase
       .from('billing')
       .select('created_at, amount, task_type')
+      .eq('user_id', this.userId)
       .gte('created_at', startDate)
       .lte('created_at', `${endDate}T23:59:59`)
       .order('created_at', { ascending: true });
-    
+
     // 按日期分组
     const dailyData: Record<string, number> = {};
     (bills || []).filter(isBillingRow).forEach((bill) => {
@@ -685,6 +686,7 @@ export class FinanceToolExecutor {
     const { data: bills } = await this.supabase
       .from('billing')
       .select('amount, created_at')
+      .eq('user_id', this.userId)
       .gte('created_at', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString());
     
     const totalSpend = bills?.reduce((sum, b) => sum + formatAmount(b.amount), 0) || 0;

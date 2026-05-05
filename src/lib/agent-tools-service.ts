@@ -2085,7 +2085,7 @@ ${modification}
    */
   private async getTemplate(templateId: string): Promise<{ success: boolean; data?: unknown; error?: string }> {
     try {
-      const result = await this.templateService.getTemplate(templateId);
+      const result = await this.templateService.getTemplate(templateId, this.currentUserId || undefined);
       return result;
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : '获取模板失败' };
@@ -2133,7 +2133,7 @@ ${modification}
     first_frame_url?: string;
   }): Promise<{ success: boolean; data?: unknown; error?: string }> {
     try {
-      const templateResult = await this.templateService.getTemplate(params.template_id);
+      const templateResult = await this.templateService.getTemplate(params.template_id, this.currentUserId || undefined);
       if (!templateResult.success || !templateResult.data) {
         return { success: false, error: '模板不存在' };
       }

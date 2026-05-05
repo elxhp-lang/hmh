@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FetchClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
+import { getUserFromRequest } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
+  const user = getUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json({ error: '未授权' }, { status: 401 });
+  }
+
   try {
     const { url } = await request.json();
     

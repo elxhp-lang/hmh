@@ -695,7 +695,8 @@ export async function DELETE(request: NextRequest) {
     const { error } = await client
       .from('learning_library')
       .delete()
-      .eq('id', learningId);
+      .eq('id', learningId)
+      .eq('user_id', decoded.userId);
 
     if (error) {
       throw new Error(`删除失败: ${error.message}`);

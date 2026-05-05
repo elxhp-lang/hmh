@@ -1,14 +1,24 @@
 /**
  * 双笔记本系统：清理 24 小时前的对话历史
- * 
+ *
  * POST /api/cleanup/conversation-history
- * 
+ *
  * 用于定时任务调用，每小时执行一次
+ * 认证：请求头 X-Cleanup-Key 与 AGENT_API_KEY 一致
  */
 
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 
-export async function POST() {
+const CLEANUP_KEY = process.env.AGENT_API_KEY || 'hmh-agent-2024';
+
+function checkAuth(request: Request): boolean {
+  return request.headers.get('X-Cleanup-Key') === CLEANUP_KEY;
+}
+
+export async function POST(request: Request) {
+  if (!checkAuth(request)) {
+    return Response.json({ success: false, error: '未授权' }, { status: 401 });
+  }
   try {
     console.log('🧹 [清理任务] 开始执行...');
 
@@ -59,7 +69,10 @@ export async function POST() {
  * 
  * 查询当前有多少 24 小时前的记录待清理
  */
-export async function GET() {
+export async function GET(request: Request) {
+  if (!checkAuth(request)) {
+    return Response.json({ success: false, error: '未授权' }, { status: 401 });
+  }
   try {
     const supabase = getSupabaseClient();
     

@@ -331,7 +331,8 @@ class ProductLibraryService {
         images,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', productId);
+      .eq('id', productId)
+      .eq('user_id', userId);
   }
 
   /**

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import jwt, { JsonWebTokenError, TokenExpiredError } from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+// 生产环境警告
+if (typeof process !== 'undefined' && !process.env.JWT_SECRET && process.env.COZE_PROJECT_ENV === 'PROD') {
+  console.error('⚠️ [安全] JWT_SECRET 未设置，使用默认值。生产环境必须设置环境变量！');
+}
 
 export interface AuthUser {
   userId: string;

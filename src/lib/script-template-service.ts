@@ -135,17 +135,18 @@ export class ScriptTemplateService {
   /**
    * 获取单个模板
    */
-  async getTemplate(templateId: string): Promise<{
+  async getTemplate(templateId: string, userId?: string): Promise<{
     success: boolean;
     data?: ScriptTemplate;
     error?: string;
   }> {
     try {
-      const { data, error } = await this.supabase
+      let query = this.supabase
         .from('script_templates')
         .select('*')
-        .eq('template_id', templateId)
-        .single();
+        .eq('template_id', templateId);
+      if (userId) query = query.eq('created_by', userId);
+      const { data, error } = await query.single();
 
       if (error) {
         console.error('获取模板失败:', error);
@@ -184,15 +185,17 @@ export class ScriptTemplateService {
   /**
    * 删除模板
    */
-  async deleteTemplate(templateId: string): Promise<{
+  async deleteTemplate(templateId: string, userId?: string): Promise<{
     success: boolean;
     error?: string;
   }> {
     try {
-      const { error } = await this.supabase
+      let query = this.supabase
         .from('script_templates')
         .delete()
         .eq('template_id', templateId);
+      if (userId) query = query.eq('created_by', userId);
+      const { error } = await query;
 
       if (error) {
         return { success: false, error: error.message };

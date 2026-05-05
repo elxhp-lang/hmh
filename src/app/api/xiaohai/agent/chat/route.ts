@@ -770,7 +770,14 @@ export async function POST(request: NextRequest) {
 
             if (!assistantMessage.trim()) {
               console.log('⚠️ [Agent] LLM 返回为空');
-              controller.close(); // 🔧 修复：必须关闭流
+              if (workerTaskId && userId && session?.id) {
+                await taskStateService.transitionTask(workerTaskId, 'failed', {
+                  progress: 100,
+                  completed_at: new Date().toISOString(),
+                  error_message: '模型返回为空',
+                });
+              }
+              controller.close();
               break;
             }
 
@@ -796,7 +803,7 @@ export async function POST(request: NextRequest) {
                 console.log(`📝 [笔记本1号] persistAssistantParts 跳过: hasId=${!!assistantMessageId}, hasUser=${!!userId}, partsLen=${iterationParts.length}`);
               }
               if (workerTaskId && userId && session?.id) {
-                await taskStateService.saveOutput(workerTaskId, userId, session.id, assistantMessageId, assistantMessage, iterationParts);
+                await taskStateService.saveOutput(workerTaskId, userId, session.id, assistantMessageId, cleanedAssistantMessage, iterationParts);
               }
             };
 

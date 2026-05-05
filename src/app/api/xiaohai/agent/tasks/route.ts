@@ -25,20 +25,31 @@ export async function GET(request: NextRequest) {
 
     const supabase = getSupabaseClient();
 
-    // 自动收敛“卡住的运行中任务”：超过 15 分钟未结束则标记失败，便于前端恢复/重试
+    // 自动收敛”卡住的任务”：超过 15 分钟未结束则标记失败
     const staleAt = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const staleUpdate = {
+      status: 'failed',
+      progress: 100,
+      completed_at: new Date().toISOString(),
+      error_message: '任务状态超时，已自动转为可重试',
+      updated_at: new Date().toISOString(),
+    };
+    // running 状态超时
     await supabase
       .from('worker_tasks')
-      .update({
-        status: 'failed',
-        progress: 100,
-        completed_at: new Date().toISOString(),
-        error_message: '任务状态超时，已自动转为可重试',
-        updated_at: new Date().toISOString(),
-      })
+      .update(staleUpdate)
       .eq('user_id', userId)
       .eq('status', 'running')
       .lt('started_at', staleAt)
+      .is('completed_at', null);
+    // queued 状态超时（30分钟）
+    const queuedStaleAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    await supabase
+      .from('worker_tasks')
+      .update(staleUpdate)
+      .eq('user_id', userId)
+      .eq('status', 'queued')
+      .lt('queued_at', queuedStaleAt)
       .is('completed_at', null);
 
     let query = supabase
@@ -117,6 +128,10 @@ export async function POST(request: NextRequest) {
         .select('id,status,queued_at,retry_count')
         .single();
       if (error || !data) return fail(`重试任务失败: ${error?.message || '任务不存在或状态不允许重试'}`, 400);
+      // 清理旧数据：重试时清除之前的 items/events/outputs，避免回放时新旧混杂
+      void supabase.from('worker_task_items').delete().eq('task_id', taskId);
+      void supabase.from('task_events').delete().eq('task_id', taskId);
+      void supabase.from('task_outputs').delete().eq('task_id', taskId);
       return ok({ data: { task: data }, message: '任务已重新排队' });
     }
 

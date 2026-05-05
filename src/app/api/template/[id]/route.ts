@@ -30,7 +30,7 @@ export async function GET(
     }
 
     const { id } = await params;
-    const result = await templateService.getTemplate(id);
+    const result = await templateService.getTemplate(id, user.userId);
 
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 500 });
@@ -66,7 +66,7 @@ export async function DELETE(
     }
 
     const { id } = await params;
-    const result = await templateService.deleteTemplate(id);
+    const result = await templateService.deleteTemplate(id, user.userId);
 
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 500 });
