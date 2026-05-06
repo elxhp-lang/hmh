@@ -49,11 +49,12 @@ async function interceptAuthResponse(response: Response): Promise<{ body: unknow
       }
       return { body, handled: false, newToken };
     }
-    return { body, handled: false, newToken: null };
+    // 非过期场景的401：body已消费，返回handled=true让调用方用preReadBody
+    return { body, handled: true, newToken: null };
   }
   if (response.status === 403) {
     const body = await response.json().catch(() => ({}));
-    return { body, handled: false, newToken: null };
+    return { body, handled: true, newToken: null };
   }
   return { body: null, handled: false, newToken: null };
 }
@@ -66,11 +67,16 @@ async function fetchWithAuthRetry(
   const { signal } = options;
   const response = await fetch(url, options);
   if (signal?.aborted) throw new ApiError('请求已取消', 0);
-  const { handled, newToken } = await interceptAuthResponse(response);
-  if (handled) throw new ApiError('Token已过期，请重新登录', 401);
+  const { handled, newToken, body: preReadBody } = await interceptAuthResponse(response);
+  // Token过期场景：handled=true 且无preReadBody
+  if (handled && !preReadBody) throw new ApiError('Token已过期，请重新登录', 401);
   if (newToken && options.headers) {
     const headers = { ...options.headers as Record<string, string>, Authorization: `Bearer ${newToken}` };
     return fetch(url, { ...options, headers });
+  }
+  // 非Token的401/403：body已被消费，返回标记对象让调用方用preReadBody
+  if (preReadBody) {
+    return { ...response, _preReadBody: preReadBody } as unknown as Response;
   }
   return response;
 }
@@ -114,7 +120,8 @@ export async function apiRequest<T>(endpoint: string, options: RequestOptions = 
     body: isFormData ? body as FormData : (body ? JSON.stringify(body) : undefined),
   });
 
-  const data = await response.json();
+  const raw = response as unknown as { _preReadBody?: unknown };
+  const data = raw._preReadBody ?? (await response.json());
 
   if (!response.ok) {
     throw new ApiError(typeof data === 'object' && data && 'error' in data ? (data as Record<string, unknown>).error as string : '请求失败', response.status, data);
