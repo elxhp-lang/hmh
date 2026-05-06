@@ -145,6 +145,8 @@ function DebugPanel({ logs, onClear, onExport }: { logs: DebugLog[]; onClear: ()
 }
 import { RightSidebar, CreationOption, HistoryItem, MaterialItem, WorkerTaskItem } from '@/components/agent/RightSidebar';
 
+interface UserModelOption { id: string; alias: string; model_type: string; model_name: string; status: string; }
+
 // ========== 类型定义 ==========
 
 interface VideoAnalysis {
@@ -547,6 +549,10 @@ export default function CreativeAgentPageNew() {
   const [isLoading, setIsLoading] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [userModels, setUserModels] = useState<UserModelOption[]>([]);
+  const [selectedChatModelId, setSelectedChatModelId] = useState<string | null>(null);
+  const [selectedImageModelId, setSelectedImageModelId] = useState<string | null>(null);
+  const [selectedVideoModelId, setSelectedVideoModelId] = useState<string | null>(null);
   const [memoryActionLoading, setMemoryActionLoading] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
   
@@ -689,6 +695,13 @@ export default function CreativeAgentPageNew() {
     } catch (error) {
       console.error('加载会话列表失败:', error);
     }
+  }, [token]);
+
+  // 加载用户自定义模型（选择器用）
+  useEffect(() => {
+    if (!token) return;
+    fetch('/api/models', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => setUserModels(d?.data || [])).catch(() => {});
   }, [token]);
 
   const loadWorkerTasks = useCallback(async () => {
@@ -1768,6 +1781,16 @@ export default function CreativeAgentPageNew() {
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="font-semibold">创意小海</h1>
+                  {/* 模型选择器 */}
+                  <Select value={selectedChatModelId || ''} onValueChange={v => setSelectedChatModelId(v || null)}>
+                    <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue placeholder="主模型" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">系统默认</SelectItem>
+                      {userModels.filter(m => m.model_type === 'chat' && m.status === 'ok').map(m => (
+                        <SelectItem key={m.id} value={m.id}>{m.alias}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   {/* ========== 方案一：小红点 ========== */}
                   {hasNewVideo && (
                     <Badge 
