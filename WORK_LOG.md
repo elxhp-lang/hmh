@@ -2,6 +2,34 @@
 
 ---
 
+## 2026-05-06 - 模型自定义接入系统 + 14维度全栈审计修复
+
+### 模型自定义接入（10项实施完成）
+
+- `/settings/models` 模型管理页 + `/settings/models/add` 添加页
+- `model-deps.ts` 依赖映射表（子Agent测试大纲）
+- `model-config-agent.ts` 子Agent模块（语义分析/适配器生成/管道测试）
+- `crypto.ts` AES-256-GCM 加密/解密/脱敏
+- `generic-llm-client.ts` OpenAI兼容SSE流客户端
+- 创意小海头部主模型选择器 + 导航栏模型配置入口
+- AgentToolsService 适配器加载基础设施 + 降级逻辑
+
+### 14维度审计修复（17项修复/18项发现）
+
+- caps列写入修复、setModelIds调用修复
+- 管道测试超时、适配器异常降级修复
+- 全链路日志补齐（子Agent/loadAdapter/模型切换/CRUD）
+- 401 body消费导致Failed to fetch修复
+- main模型切换到openAIStream通用客户端
+
+### 核心原则
+
+- 无自定义模型时零影响：所有路径回退系统默认(Coze SDK/Seedance)
+- 适配器为数据不存源码：new Function()沙箱执行
+- 三库对齐：LOCAL/DEV/PROD均已迁移
+
+---
+
 ## 2026-04-29 - 生产部署修复与用户文档交付收尾
 
 ### 工作内容
