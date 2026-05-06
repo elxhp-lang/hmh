@@ -598,3 +598,28 @@ export const userProfiles = pgTable(
 );
 
 export type UserProfile = typeof userProfiles.$inferSelect;
+
+// ========== 用户自定义模型表 ==========
+export const userModels = pgTable(
+  "user_models",
+  {
+    id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+    user_id: varchar("user_id", { length: 36 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+    alias: varchar("alias", { length: 100 }).notNull(),
+    model_type: varchar("model_type", { length: 20 }).notNull().default('chat'), // chat, video
+    api_url: text("api_url").notNull(),
+    api_key_encrypted: text("api_key_encrypted").notNull(),
+    model_name: varchar("model_name", { length: 200 }).notNull(),
+    is_default: boolean("is_default").default(false),
+    auto_fallback: boolean("auto_fallback").default(false),
+    status: varchar("status", { length: 20 }).default('untested'), // untested, ok, failed
+    last_tested_at: timestamp("last_tested_at", { withTimezone: true }),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("user_models_user_id_idx").on(table.user_id),
+  ]
+);
+
+export type UserModel = typeof userModels.$inferSelect;
