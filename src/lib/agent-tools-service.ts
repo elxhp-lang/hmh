@@ -323,12 +323,42 @@ export class AgentToolsService {
   /**
    * 设置当前用户 ID（由 API 层调用）
    */
+  private currentImageModelId: string | null = null;
+  private currentVideoModelId: string | null = null;
+  private loadedAdapters: Record<string, Record<string, Function>> = {};
+
   setUserId(userId: string | null) {
     this.currentUserId = userId;
   }
 
   setSessionId(sessionId: string | null) {
     this.currentSessionId = sessionId;
+  }
+
+  setModelIds(imageModelId?: string | null, videoModelId?: string | null) {
+    this.currentImageModelId = imageModelId || null;
+    this.currentVideoModelId = videoModelId || null;
+    this.loadedAdapters = {}; // 清除旧的适配器缓存
+  }
+
+  /** 加载用户模型适配器（懒加载+缓存） */
+  private async loadAdapter(modelId: string): Promise<Record<string, Function> | null> {
+    if (this.loadedAdapters[modelId]) return this.loadedAdapters[modelId];
+    try {
+      const { data: model } = await this.supabase.from('user_models')
+        .select('api_url, api_key_encrypted, audit_result')
+        .eq('id', modelId).single();
+      if (!model) return null;
+      const audit = (model.audit_result || {}) as Record<string, unknown>;
+      const code = typeof audit.adapter === 'string' ? audit.adapter : '';
+      if (!code) return null;
+      const { decrypt } = await import('./crypto');
+      const apiKey = decrypt(model.api_key_encrypted as string);
+      const fn = new Function('apiUrl', 'apiKey', `${code}\nreturn module.exports;`);
+      const adapter = fn(model.api_url, apiKey) as Record<string, Function>;
+      this.loadedAdapters[modelId] = adapter;
+      return adapter;
+    } catch { return null; }
   }
 
   private getUserId(): string {
