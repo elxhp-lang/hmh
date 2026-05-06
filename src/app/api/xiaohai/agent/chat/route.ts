@@ -21,6 +21,8 @@ import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { createSSEWriter, getBearerToken, ok } from '@/lib/server/api-kit';
 import { MessagePart, normalizeToolExecutionResult } from '@/lib/agent-sse';
 import { TaskStateService } from '@/lib/server/task-state-service';
+import { decrypt } from '@/lib/crypto';
+import { openAIStream } from '@/lib/generic-llm-client';
 import { UserProfileService } from '@/lib/user-profile-service';
 
 const client = new LLMClient(new Config());
@@ -498,7 +500,20 @@ export async function POST(request: NextRequest) {
 
     // 2. 解析请求
     const body = await request.json();
-    const { message, attachments, webSearchEnabled = false, history = [], sessionId, clientRequestId } = body;
+    const { message, attachments, webSearchEnabled = false, history = [], sessionId, clientRequestId, chatModelId } = body;
+
+    // 加载用户自定义主Agent模型
+    let userChatModel: { apiUrl: string; apiKey: string; modelName: string } | null = null;
+    if (chatModelId) {
+      try {
+        const supabase = getSupabaseClient();
+        const { data: m } = await supabase.from('user_models').select('api_url,api_key_encrypted,model_name,status')
+          .eq('id', chatModelId).eq('user_id', userId || '').eq('model_type', 'chat').single();
+        if (m && m.status === 'ok') {
+          userChatModel = { apiUrl: m.api_url as string, apiKey: decrypt(m.api_key_encrypted as string), modelName: m.model_name as string };
+        }
+      } catch { /* 加载失败→用默认 */ }
+    }
 
     // 设置联网搜索开关
     toolsService.setWebSearchEnabled(webSearchEnabled);
@@ -723,7 +738,29 @@ export async function POST(request: NextRequest) {
             let assistantMessage = '';
             let streamedVisibleText = '';
             let lastStreamFlushAt = Date.now();
-            
+
+            // 主Agent模型：用户自定义模型 → OpenAI兼容流，否则 → Coze SDK
+            if (userChatModel) {
+              const genericMessages = messages.map(m => ({ role: m.role as 'system' | 'user' | 'assistant', content: typeof m.content === 'string' ? m.content : '' }));
+              const openAIStreamIterator = openAIStream(userChatModel.apiUrl, userChatModel.apiKey, genericMessages, { model: userChatModel.modelName, temperature: 0.7 });
+              for await (const chunk of openAIStreamIterator) {
+                const content = chunk.content;
+                if (content) {
+                  assistantMessage += content;
+                  if (!assistantMessage.includes('<|FunctionCallBegin|>')) {
+                    streamedVisibleText += content
+                      .replace(/<\|FunctionCallBegin\|>/g, '')
+                      .replace(/<\|FunctionCallEnd\|>/g, '');
+                    const now = Date.now();
+                    if (streamedVisibleText.length >= 24 || now - lastStreamFlushAt >= 80) {
+                      sendEvent({ type: 'content', content: streamedVisibleText });
+                      streamedVisibleText = '';
+                      lastStreamFlushAt = now;
+                    }
+                  }
+                }
+              }
+            } else {
             const response = await client.stream(messages, {
               model: 'doubao-seed-2-0-pro-260215',
               temperature: 0.7,
@@ -749,6 +786,7 @@ export async function POST(request: NextRequest) {
                 }
               }
             }
+            } // end else (Coze SDK path)
 
             if (streamedVisibleText.trim()) {
               sendEvent({ type: 'content', content: streamedVisibleText });

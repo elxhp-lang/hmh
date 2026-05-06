@@ -1371,7 +1371,8 @@ export default function CreativeAgentPageNew() {
       attachments: apiAttachments,
       history: conversationHistory.current,
       sessionId: boundSessionId,
-      webSearchEnabled  // 联网搜索开关
+      webSearchEnabled,
+      chatModelId: selectedChatModelId || undefined,
     };
     
     addDebugLog('api', '发送请求到 API', { 
