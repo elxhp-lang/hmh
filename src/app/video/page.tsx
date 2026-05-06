@@ -118,6 +118,8 @@ export default function VideoPage() {
 
   // 模型与参数
   const [model, setModel] = useState<SeedanceModel>('doubao-seedance-2-0-260128');
+  const [videoModelId, setVideoModelId] = useState<string>('');
+  const [userVideoModels, setUserVideoModels] = useState<Array<{id:string;alias:string;model_name:string;status:string}>>([]);
   const [ratio, setRatio] = useState<VideoRatio>('16:9');
   const [duration, setDuration] = useState(5);
   const [generateAudio, setGenerateAudio] = useState(true);
