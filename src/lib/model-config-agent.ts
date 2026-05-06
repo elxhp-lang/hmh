@@ -39,6 +39,7 @@ const ANALYSIS_PROMPT = `你是模型配置分析助手。根据用户提供的A
 export class ModelConfigAgent {
   /** 分析用户API代码——提取字段映射和功能清单 */
   async analyze(code: string, modelType: string): Promise<AnalyzeResult> {
+    console.log(`[ModelAgent] 开始分析: type=${modelType}, codeLen=${code.length}`);
     try {
       const { LLMClient, Config } = await import('coze-coding-dev-sdk');
       const client = new LLMClient(new Config());
@@ -55,6 +56,7 @@ export class ModelConfigAgent {
       const json = text.replace(/```json\s*/g, '').replace(/```/g, '').trim();
       return JSON.parse(json) as AnalyzeResult;
     } catch (e) {
+      console.error(`[ModelAgent] analyze失败: type=${modelType}, error=`, e instanceof Error ? e.message : e);
       return { fields: {}, caps: {}, errors: [e instanceof Error ? e.message : '分析失败'] };
     }
   }
@@ -127,7 +129,10 @@ export class ModelConfigAgent {
     // 根据类型执行管道测试
     if (modelType === 'image' && adapter.createImage) {
       try {
-        const r = await adapter.createImage({ prompt: 'test connection' }) as Record<string, unknown>;
+        const r = await Promise.race([
+          adapter.createImage({ prompt: 'test connection' }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 30000)),
+        ]) as Record<string, unknown>;
         if (r && typeof r.image_url === 'string') {
           results.push({ step: 'createImage', status: 'ok', detail: `image_url: ${(r.image_url as string).slice(0, 60)}` });
           // 验证图片可下载
@@ -149,7 +154,10 @@ export class ModelConfigAgent {
 
     if (modelType === 'video' && adapter.createTask) {
       try {
-        const r = await adapter.createTask({ prompt: 'test', duration: 5 }) as Record<string, unknown>;
+        const r = await Promise.race([
+          adapter.createTask({ prompt: 'test', duration: 5 }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 60000)),
+        ]) as Record<string, unknown>;
         if (r && typeof r.task_id === 'string') {
           results.push({ step: 'createTask', status: 'ok', detail: `task_id: ${r.task_id}` });
           // 测试查询

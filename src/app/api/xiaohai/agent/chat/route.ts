@@ -500,7 +500,10 @@ export async function POST(request: NextRequest) {
 
     // 2. 解析请求
     const body = await request.json();
-    const { message, attachments, webSearchEnabled = false, history = [], sessionId, clientRequestId, chatModelId } = body;
+    const { message, attachments, webSearchEnabled = false, history = [], sessionId, clientRequestId, chatModelId, imageModelId, videoModelId } = body;
+
+    // 设置工具模型（图片/视频生成工具）
+    toolsService.setModelIds(imageModelId, videoModelId);
 
     // 加载用户自定义主Agent模型
     let userChatModel: { apiUrl: string; apiKey: string; modelName: string } | null = null;
@@ -741,6 +744,7 @@ export async function POST(request: NextRequest) {
 
             // 主Agent模型：用户自定义模型 → OpenAI兼容流，否则 → Coze SDK
             if (userChatModel) {
+              console.log(`🔄 [Agent] 使用自定义模型: ${userChatModel.modelName}`);
               const genericMessages = messages.map(m => ({ role: m.role as 'system' | 'user' | 'assistant', content: typeof m.content === 'string' ? m.content : '' }));
               const openAIStreamIterator = openAIStream(userChatModel.apiUrl, userChatModel.apiKey, genericMessages, { model: userChatModel.modelName, temperature: 0.7 });
               for await (const chunk of openAIStreamIterator) {

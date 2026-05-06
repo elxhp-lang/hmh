@@ -358,7 +358,10 @@ export class AgentToolsService {
       const adapter = fn(model.api_url, apiKey) as Record<string, Function>;
       this.loadedAdapters[modelId] = adapter;
       return adapter;
-    } catch { return null; }
+    } catch (e) {
+      console.error(`[Adapter] 加载适配器失败: modelId=${modelId}, error=`, e instanceof Error ? e.message : e);
+      return null;
+    }
   }
 
   private getUserId(): string {
@@ -646,12 +649,16 @@ export class AgentToolsService {
     try {
       // 用户自定义模型适配器
       if (this.currentVideoModelId) {
-        const adapter = await this.loadAdapter(this.currentVideoModelId);
-        if (adapter?.createTask) {
-          const r = await adapter.createTask({ prompt, firstFrameUrl, duration, ratio: options?.aspect_ratio, reference_video: options?.reference_video }) as Record<string, unknown>;
-          if (r && typeof r.task_id === 'string') {
-            return { success: true, data: { video_id: uuidv4(), seedance_task_id: r.task_id as string, status: 'submitted' } };
+        try {
+          const adapter = await this.loadAdapter(this.currentVideoModelId);
+          if (adapter?.createTask) {
+            const r = await adapter.createTask({ prompt, firstFrameUrl, duration, ratio: options?.aspect_ratio, reference_video: options?.reference_video }) as Record<string, unknown>;
+            if (r && typeof r.task_id === 'string') {
+              return { success: true, data: { video_id: uuidv4(), seedance_task_id: r.task_id as string, status: 'submitted' } };
+            }
           }
+        } catch (e) {
+          console.error(`[Adapter] 视频适配器调用失败，回退默认:`, e instanceof Error ? e.message : e);
         }
       }
 
@@ -2075,13 +2082,17 @@ ${modification}
     try {
       // 用户自定义图片模型适配器
       if (this.currentImageModelId) {
-        const adapter = await this.loadAdapter(this.currentImageModelId);
-        if (adapter?.createImage) {
-          const prompt = params.prompt || params.scriptContent || params.script_content || 'generate image';
-          const r = await adapter.createImage({ prompt }) as Record<string, unknown>;
-          if (r && typeof r.image_url === 'string') {
-            return { success: true, data: { image_id: `img_${Date.now()}`, image_url: r.image_url as string, public_image_url: r.image_url as string } };
+        try {
+          const adapter = await this.loadAdapter(this.currentImageModelId);
+          if (adapter?.createImage) {
+            const prompt = params.prompt || params.scriptContent || params.script_content || 'generate image';
+            const r = await adapter.createImage({ prompt }) as Record<string, unknown>;
+            if (r && typeof r.image_url === 'string') {
+              return { success: true, data: { image_id: `img_${Date.now()}`, image_url: r.image_url as string, public_image_url: r.image_url as string } };
+            }
           }
+        } catch (e) {
+          console.error(`[Adapter] 图片适配器调用失败，回退默认:`, e instanceof Error ? e.message : e);
         }
       }
 

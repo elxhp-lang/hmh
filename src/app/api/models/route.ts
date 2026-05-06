@@ -50,10 +50,12 @@ export async function POST(request: NextRequest) {
     model_name,
     api_example: api_example || null,
     audit_result,
+    caps: audit_result ? (audit_result as Record<string, unknown>).caps : null,
     status: audit_result ? 'analyzing' : 'untested',
   }).select('id,alias,model_type,api_url,model_name,is_default,auto_fallback,status,created_at').single();
 
   if (error || !data) return fail(error?.message || '创建失败', 500);
+  console.log(`[Models] 创建: userId=${userId}, alias=${alias}, type=${model_type}, id=${(data as Record<string,unknown>)?.id}`);
   return ok({ data: { ...data, api_key_masked: maskKey(api_key) } });
 }
 
@@ -93,5 +95,6 @@ export async function DELETE(request: NextRequest) {
 
   const supabase = getSupabaseClient();
   await supabase.from('user_models').delete().eq('id', id).eq('user_id', auth.user!.userId);
+  console.log(`[Models] 删除: userId=${auth.user!.userId}, id=${id}`);
   return ok({ message: '已删除' });
 }

@@ -38,7 +38,7 @@ export async function* openAIStream(
 
   if (!response.ok) {
     const err = await response.text().catch(() => '');
-    throw new Error(`OpenAI API error ${response.status}: ${err.slice(0, 200)}`);
+    throw new Error(`OpenAI API error ${response.status} at ${apiUrl}: ${err.slice(0, 200)}`);
   }
 
   const reader = response.body?.getReader();

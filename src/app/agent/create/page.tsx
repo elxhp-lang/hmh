@@ -1373,6 +1373,8 @@ export default function CreativeAgentPageNew() {
       sessionId: boundSessionId,
       webSearchEnabled,
       chatModelId: selectedChatModelId || undefined,
+      imageModelId: selectedImageModelId || undefined,
+      videoModelId: selectedVideoModelId || undefined,
     };
     
     addDebugLog('api', '发送请求到 API', { 
