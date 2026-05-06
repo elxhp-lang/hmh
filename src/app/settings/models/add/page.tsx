@@ -98,10 +98,9 @@ export default function AddModelPage() {
               <Label>模型名称 *</Label>
               <Input value={form.model_name} onChange={e => setForm({...form, model_name: e.target.value})} placeholder="gpt-4o / deepseek-v3" />
             </div>
-            {(form.model_type === 'image' || form.model_type === 'video') && (
-              <div>
-                <Label>标准调用代码（图片/视频模型必填）</Label>
-                <p className="text-xs text-muted-foreground mb-1">粘贴该模型的标准API调用代码，子Agent将自动分析字段映射</p>
+            <div>
+                <Label>标准调用代码{form.model_type === 'chat' ? '（选填）' : '（必填）'}</Label>
+                <p className="text-xs text-muted-foreground mb-1">粘贴该模型的API调用示例代码，子Agent将自动分析字段映射</p>
                 <Textarea
                   value={form.api_example}
                   onChange={e => setForm({...form, api_example: e.target.value})}
@@ -109,7 +108,6 @@ export default function AddModelPage() {
                   className="min-h-[120px] font-mono text-xs"
                 />
               </div>
-            )}
             <div className="flex gap-2 pt-2">
               <Button onClick={handleSave} disabled={saving}>
                 {saving ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}保存并分析
