@@ -606,13 +606,16 @@ export const userModels = pgTable(
     id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
     user_id: varchar("user_id", { length: 36 }).notNull().references(() => users.id, { onDelete: "cascade" }),
     alias: varchar("alias", { length: 100 }).notNull(),
-    model_type: varchar("model_type", { length: 20 }).notNull().default('chat'), // chat, video
+    model_type: varchar("model_type", { length: 20 }).notNull().default('chat'), // chat, image, video
     api_url: text("api_url").notNull(),
     api_key_encrypted: text("api_key_encrypted").notNull(),
     model_name: varchar("model_name", { length: 200 }).notNull(),
+    api_example: text("api_example"),                        // 用户粘贴的标准调用代码
+    audit_result: jsonb("audit_result"),                     // 子Agent语义标注+测试结果+适配器
+    caps: jsonb("caps"),                                     // 功能清单
     is_default: boolean("is_default").default(false),
     auto_fallback: boolean("auto_fallback").default(false),
-    status: varchar("status", { length: 20 }).default('untested'), // untested, ok, failed
+    status: varchar("status", { length: 20 }).default('untested'), // untested, ok, partial
     last_tested_at: timestamp("last_tested_at", { withTimezone: true }),
     created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updated_at: timestamp("updated_at", { withTimezone: true }),

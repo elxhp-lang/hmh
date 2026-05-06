@@ -2,6 +2,9 @@ import { NextRequest } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { fail, ok, requireAuth } from '@/lib/server/api-kit';
 import { encrypt, decrypt, maskKey } from '@/lib/crypto';
+import { ModelConfigAgent } from '@/lib/model-config-agent';
+
+const configAgent = new ModelConfigAgent();
 
 export async function GET(request: NextRequest) {
   const auth = requireAuth(request);
@@ -10,7 +13,7 @@ export async function GET(request: NextRequest) {
   const supabase = getSupabaseClient();
   const { data: models } = await supabase
     .from('user_models')
-    .select('id,alias,model_type,api_url,model_name,is_default,auto_fallback,status,last_tested_at,created_at')
+    .select('id,alias,model_type,api_url,model_name,is_default,auto_fallback,status,caps,last_tested_at,created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
   return ok({ data: models || [] });
@@ -22,13 +25,22 @@ export async function POST(request: NextRequest) {
   const userId = auth.user.userId;
 
   const body = await request.json().catch(() => ({}));
-  const { alias, model_type = 'chat', api_url, api_key, model_name } = body;
+  const { alias, model_type = 'chat', api_url, api_key, model_name, api_example } = body;
 
   if (!alias || !api_url || !api_key || !model_name) {
     return fail('缺少必要参数: alias, api_url, api_key, model_name', 400);
   }
 
   const supabase = getSupabaseClient();
+  // 有 api_example 时触发语义分析
+  let audit_result = null;
+  if (api_example && (model_type === 'image' || model_type === 'video')) {
+    try {
+      const analysis = await configAgent.analyze(api_example, model_type);
+      audit_result = { fields: analysis.fields, caps: analysis.caps, errors: analysis.errors };
+    } catch { /* 分析失败不阻塞保存 */ }
+  }
+
   const { data, error } = await supabase.from('user_models').insert({
     user_id: userId,
     alias,
@@ -36,6 +48,9 @@ export async function POST(request: NextRequest) {
     api_url,
     api_key_encrypted: encrypt(api_key),
     model_name,
+    api_example: api_example || null,
+    audit_result,
+    status: audit_result ? 'analyzing' : 'untested',
   }).select('id,alias,model_type,api_url,model_name,is_default,auto_fallback,status,created_at').single();
 
   if (error || !data) return fail(error?.message || '创建失败', 500);

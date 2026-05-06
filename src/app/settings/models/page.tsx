@@ -4,45 +4,29 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import {
-  Plus, Trash2, Play, Loader2, Shield, Zap, ArrowLeft, Eye, EyeOff,
+  Plus, Trash2, Play, Loader2, Shield, ArrowLeft, CheckCircle, XCircle, AlertTriangle, Zap, Image, Video, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import Link from 'next/link';
 
 interface UserModel {
-  id: string;
-  alias: string;
-  model_type: 'chat' | 'video';
-  api_url: string;
-  model_name: string;
-  is_default: boolean;
-  auto_fallback: boolean;
-  status: string;
-  last_tested_at?: string;
-  created_at: string;
+  id: string; alias: string; model_type: 'chat' | 'image' | 'video';
+  api_url: string; model_name: string; status: string; caps?: Record<string, unknown>;
+  audit_result?: Record<string, unknown>; last_tested_at?: string; created_at: string;
 }
 
 export default function ModelsPage() {
   const { token } = useAuth();
   const [models, setModels] = useState<UserModel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [showKey, setShowKey] = useState(false);
-
-  // Form state
-  const [alias, setAlias] = useState('');
-  const [modelType, setModelType] = useState<'chat' | 'video'>('chat');
-  const [apiUrl, setApiUrl] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const [modelName, setModelName] = useState('');
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<Record<string, unknown> | null>(null);
+  const [dialogInput, setDialogInput] = useState('');
 
   const loadModels = useCallback(async () => {
     if (!token) return;
@@ -56,55 +40,41 @@ export default function ModelsPage() {
 
   useEffect(() => { loadModels(); }, [loadModels]);
 
-  const resetForm = () => {
-    setAlias(''); setModelType('chat'); setApiUrl(''); setApiKey(''); setModelName('');
-    setShowKey(false); setShowForm(false);
-  };
-
-  const handleSave = async () => {
-    if (!alias || !apiUrl || !apiKey || !modelName) {
-      toast.error('请填写所有字段'); return;
-    }
-    setSaving(true);
-    try {
-      const res = await fetch('/api/models', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ alias, model_type: modelType, api_url: apiUrl, api_key: apiKey, model_name: modelName }),
-      });
-      if (res.ok) { toast.success('模型已添加'); resetForm(); loadModels(); }
-      else { const err = await res.json(); toast.error(err.error || '添加失败'); }
-    } catch { toast.error('网络错误'); }
-    setSaving(false);
-  };
-
   const handleDelete = async (id: string) => {
-    try {
-      await fetch(`/api/models?id=${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-      toast.success('已删除'); loadModels();
-    } catch { toast.error('删除失败'); }
+    try { await fetch(`/api/models?id=${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }); toast.success('已删除'); loadModels(); }
+    catch { toast.error('删除失败'); }
   };
 
   const handleTest = async (id: string) => {
-    setTesting(id);
+    setTesting(id); setTestResult(null); setExpanded(id);
     try {
-      const res = await fetch('/api/models/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ id }),
-      });
+      const res = await fetch('/api/models/test', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ id }) });
       const data = await res.json();
-      if (data?.data?.status === 'ok') toast.success('连接成功');
-      else toast.error(data?.data?.error || '连接失败');
+      setTestResult(data?.data || null);
+      if (data?.data?.status === 'ok') toast.success('全部连通');
+      else toast.error(`${data?.data?.tests?.filter((t:Record<string,unknown>)=>t.status==='failed').length || 0} 项失败`);
       loadModels();
     } catch { toast.error('测试失败'); }
     setTesting(null);
   };
 
-  const statusBadge = (status: string) => {
-    if (status === 'ok') return <Badge variant="outline" className="text-green-600 border-green-300">已连接</Badge>;
-    if (status === 'failed') return <Badge variant="destructive">连接失败</Badge>;
+  const statusBadge = (s: string) => {
+    if (s === 'ok') return <Badge variant="outline" className="text-green-600 border-green-300"><CheckCircle className="w-3 h-3 mr-1" />已连通</Badge>;
+    if (s === 'partial') return <Badge variant="outline" className="text-amber-600 border-amber-300"><AlertTriangle className="w-3 h-3 mr-1" />部分通过</Badge>;
+    if (s === 'failed') return <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" />失败</Badge>;
+    if (s === 'analyzing') return <Badge variant="secondary"><Loader2 className="w-3 h-3 mr-1 animate-spin" />分析中</Badge>;
     return <Badge variant="secondary">未测试</Badge>;
+  };
+
+  const typeIcon = (t: string) => {
+    if (t === 'chat') return <Zap className="w-3 h-3" />;
+    if (t === 'image') return <Image className="w-3 h-3" />;
+    if (t === 'video') return <Video className="w-3 h-3" />;
+    return null;
+  };
+
+  const capLabels: Record<string, string> = {
+    multi_modal: '多模态生成', reference_video: '视频生视频', reference_audio: '音频参考', max_duration: '最大时长',
   };
 
   return (
@@ -113,50 +83,12 @@ export default function ModelsPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link href="/settings"><ArrowLeft className="w-5 h-5 text-muted-foreground hover:text-foreground" /></Link>
-            <h1 className="text-2xl font-bold">模型配置</h1>
+            <h1 className="text-2xl font-bold">模型管理</h1>
           </div>
-          <Button onClick={() => setShowForm(true)} disabled={showForm} className="gap-1">
-            <Plus className="w-4 h-4" /> 添加模型
-          </Button>
+          <Link href="/settings/models/add">
+            <Button className="gap-1"><Plus className="w-4 h-4" />添加模型</Button>
+          </Link>
         </div>
-
-        {showForm && (
-          <Card>
-            <CardHeader><CardTitle className="text-lg">添加新模型</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div><Label>别名</Label><Input value={alias} onChange={e => setAlias(e.target.value)} placeholder="如: 我的DeepSeek" /></div>
-                <div>
-                  <Label>模型类型</Label>
-                  <Select value={modelType} onValueChange={v => setModelType(v as 'chat' | 'video')}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="chat"><Zap className="w-3 h-3 inline mr-1" />对话模型</SelectItem>
-                      <SelectItem value="video"><Play className="w-3 h-3 inline mr-1" />视频模型</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div><Label>API 地址</Label><Input value={apiUrl} onChange={e => setApiUrl(e.target.value)} placeholder="https://api.openai.com" /></div>
-              <div>
-                <Label>API 密钥</Label>
-                <div className="flex gap-2">
-                  <Input type={showKey ? 'text' : 'password'} value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="sk-..." className="flex-1" />
-                  <Button variant="outline" size="icon" onClick={() => setShowKey(!showKey)}>
-                    {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                </div>
-              </div>
-              <div><Label>模型名称</Label><Input value={modelName} onChange={e => setModelName(e.target.value)} placeholder="gpt-4o / deepseek-v3" /></div>
-              <div className="flex gap-2">
-                <Button onClick={handleSave} disabled={saving}>
-                  {saving ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}保存
-                </Button>
-                <Button variant="outline" onClick={resetForm}>取消</Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {loading ? (
           <div className="text-center py-12 text-muted-foreground"><Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />加载中...</div>
@@ -164,31 +96,66 @@ export default function ModelsPage() {
           <div className="text-center py-12 text-muted-foreground">
             <Shield className="w-10 h-10 mx-auto mb-3 opacity-30" />
             <p>暂无自定义模型</p>
-            <p className="text-xs mt-1">添加模型后可在此管理</p>
+            <p className="text-xs mt-1">点击"添加模型"开始配置</p>
           </div>
         ) : (
           <div className="space-y-3">
             {models.map(m => (
-              <Card key={m.id} className="p-4 flex items-center justify-between">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{m.alias}</span>
-                    {statusBadge(m.status)}
-                    {m.is_default && <Badge variant="outline" className="text-amber-600 border-amber-300">默认</Badge>}
-                    <Badge variant="secondary" className="text-xs">{m.model_type === 'chat' ? '对话' : '视频'}</Badge>
+              <div key={m.id}>
+                <Card className="p-4 flex items-center justify-between">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{m.alias}</span>
+                      {statusBadge(m.status)}
+                      {typeIcon(m.model_type)}
+                      <span className="text-xs text-muted-foreground">{m.model_name}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 truncate">{m.api_url}</p>
+                    {m.caps && Object.keys(m.caps).length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {Object.entries(m.caps).map(([k, v]) => (
+                          <Badge key={k} variant="outline" className={`text-[10px] h-4 ${v === false ? 'text-muted-foreground line-through' : ''}`}>
+                            {capLabels[k] || k}{typeof v === 'number' ? `:${v}s` : ''}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1 truncate">{m.model_name} · {m.api_url}</p>
-                </div>
-                <div className="flex items-center gap-1 ml-3 shrink-0">
-                  <Button variant="outline" size="sm" onClick={() => handleTest(m.id)} disabled={testing === m.id}>
-                    {testing === m.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
-                    <span className="ml-1 hidden sm:inline">测试</span>
-                  </Button>
-                  <Button variant="ghost" size="icon" onClick={() => handleDelete(m.id)}>
-                    <Trash2 className="w-4 h-4 text-muted-foreground hover:text-destructive" />
-                  </Button>
-                </div>
-              </Card>
+                  <div className="flex items-center gap-1 ml-3 shrink-0">
+                    <Button variant="outline" size="sm" onClick={() => handleTest(m.id)} disabled={testing === m.id}>
+                      {testing === m.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                      <span className="ml-1 hidden sm:inline">测试</span>
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => setExpanded(expanded === m.id ? null : m.id)}>
+                      {expanded === m.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => handleDelete(m.id)}>
+                      <Trash2 className="w-4 h-4 text-muted-foreground hover:text-destructive" />
+                    </Button>
+                  </div>
+                </Card>
+                {expanded === m.id && testResult && (() => {
+                  const tr = testResult as Record<string,unknown>;
+                  const tests = tr.tests as Array<Record<string,unknown>> | undefined;
+                  return (
+                  <div className="bg-muted/30 border rounded-b-lg p-3 space-y-2">
+                    {tr.explanation ? <p className="text-sm font-medium">{String(tr.explanation)}</p> : null}
+                    {tests?.map((t, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs">
+                        {t.status === 'ok' ? <CheckCircle className="w-3 h-3 text-green-500" /> :
+                         t.status === 'failed' ? <XCircle className="w-3 h-3 text-red-500" /> :
+                         <AlertTriangle className="w-3 h-3 text-amber-500" />}
+                        <span>{String(t.detail || '')}</span>
+                        {t.status === 'failed' && t.error ? <span className="text-muted-foreground">({String(t.error)})</span> : null}
+                      </div>
+                    ))}
+                    <div className="flex gap-2 pt-1">
+                      <Textarea value={dialogInput} onChange={e => setDialogInput(e.target.value)} placeholder="补充配置信息..." className="text-xs h-16" />
+                      <Button size="sm" onClick={() => handleTest(m.id)} disabled={testing === m.id}>重新测试</Button>
+                    </div>
+                  </div>
+                  );})()}
+              </div>
             ))}
           </div>
         )}
