@@ -1783,10 +1783,10 @@ export default function CreativeAgentPageNew() {
                 <div className="flex items-center gap-2">
                   <h1 className="font-semibold">创意小海</h1>
                   {/* 模型选择器 */}
-                  <Select value={selectedChatModelId || ''} onValueChange={v => setSelectedChatModelId(v || null)}>
+                  <Select value={selectedChatModelId || 'default'} onValueChange={v => setSelectedChatModelId(v === 'default' ? null : v)}>
                     <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue placeholder="主模型" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">系统默认</SelectItem>
+                      <SelectItem value="default">系统默认</SelectItem>
                       {userModels.filter(m => m.model_type === 'chat' && m.status === 'ok').map(m => (
                         <SelectItem key={m.id} value={m.id}>{m.alias}</SelectItem>
                       ))}

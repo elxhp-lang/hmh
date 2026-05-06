@@ -31,6 +31,7 @@ import {
   CheckCheck,
   VideoIcon,
   AlertCircle,
+  Cpu,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { getUserNavMenu, ROLE_NAMES, UserRole } from '@/lib/permissions';
@@ -416,6 +417,10 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               <DropdownMenuItem onClick={() => router.push('/settings')}>
                 <Settings className="mr-2 h-4 w-4" />
                 账户设置
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push('/settings/models')}>
+                <Cpu className="mr-2 h-4 w-4" />
+                模型配置
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem 
