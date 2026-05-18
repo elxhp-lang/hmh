@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import NextImage from 'next/image';
+import { SafeImage } from '@/components/ui/safe-image';
 import { useAuth } from '@/contexts/AuthContext';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -616,11 +616,12 @@ export default function LearningLibraryPage() {
                       {/* 视频图标 */}
                       <div className="w-16 h-16 rounded-lg bg-secondary flex items-center justify-center shrink-0 relative">
                         {learning.scene_analysis?.cover ? (
-                          <NextImage
+                          <SafeImage
                             src={learning.scene_analysis.cover} 
                             alt="" 
                             fill
                             className="w-full h-full object-cover rounded-lg"
+                            // KEEP unoptimized: TOS 签名 URL 含过期签名，Next.js 优化器无法重新获取
                             unoptimized
                           />
                         ) : (

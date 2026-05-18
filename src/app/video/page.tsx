@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import NextImage from 'next/image';
+import { SafeImage } from '@/components/ui/safe-image';
 import { useAuth } from '@/contexts/AuthContext';
 import { useApi } from '@/lib/api';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
@@ -925,13 +925,14 @@ export default function VideoPage() {
                           onClick={() => firstFrameInputRef.current?.click()}
                         >
                           {firstFramePreview ? (
-                            <NextImage
-                              src={firstFramePreview}
-                              alt="首帧"
-                              width={320}
-                              height={160}
-                              className="max-h-40 w-auto mx-auto rounded"
-                              unoptimized
+                            <SafeImage
+                               src={firstFramePreview}
+                               alt="首帧"
+                               width={320}
+                               height={160}
+                               className="max-h-40 w-auto mx-auto rounded"
+                               // KEEP unoptimized: blob URL（首帧预览）
+                               unoptimized
                             />
                           ) : (
                             <div className="py-8">
@@ -963,13 +964,14 @@ export default function VideoPage() {
                           onClick={() => lastFrameInputRef.current?.click()}
                         >
                           {lastFramePreview ? (
-                            <NextImage
-                              src={lastFramePreview}
-                              alt="尾帧"
-                              width={320}
-                              height={160}
-                              className="max-h-40 w-auto mx-auto rounded"
-                              unoptimized
+                            <SafeImage
+                               src={lastFramePreview}
+                               alt="尾帧"
+                               width={320}
+                               height={160}
+                               className="max-h-40 w-auto mx-auto rounded"
+                               // KEEP unoptimized: blob URL（尾帧预览）
+                               unoptimized
                             />
                           ) : (
                             <div className="py-8">
@@ -1041,12 +1043,13 @@ export default function VideoPage() {
                         {referenceImages.map((img, idx) => (
                           <div key={idx} className="relative group">
                             {img.preview ? (
-                              <NextImage
+                              <SafeImage
                                 src={img.preview}
                                 alt={`参考图${idx + 1}`}
                                 width={320}
                                 height={96}
                                 className="w-full h-24 object-cover rounded"
+                                // KEEP unoptimized: blob URL（参考图预览）
                                 unoptimized
                               />
                             ) : (
@@ -1291,12 +1294,13 @@ export default function VideoPage() {
                         {editReferenceImages.map((img, idx) => (
                           <div key={idx} className="relative group">
                             {img.preview ? (
-                              <NextImage
+                              <SafeImage
                                 src={img.preview}
                                 alt={`参考图${idx + 1}`}
                                 width={320}
                                 height={96}
                                 className="w-full h-24 object-cover rounded"
+                                // KEEP unoptimized: blob URL（编辑参考图预览）
                                 unoptimized
                               />
                             ) : (
@@ -1528,13 +1532,14 @@ export default function VideoPage() {
                       if (!current?.asset_url) return null;
                       return (
                         <div className="rounded border overflow-hidden bg-muted mt-2">
-                          <NextImage
-                            src={current.asset_url}
-                            alt={current.name}
-                            width={320}
-                            height={96}
-                            className="w-full h-24 object-cover"
-                            unoptimized
+                          <SafeImage
+                             src={current.asset_url}
+                             alt={current.name}
+                             width={320}
+                             height={96}
+                             className="w-full h-24 object-cover"
+                             // KEEP unoptimized: TOS 签名 URL 含过期签名
+                             unoptimized
                           />
                         </div>
                       );

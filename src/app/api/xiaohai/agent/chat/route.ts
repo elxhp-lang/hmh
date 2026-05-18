@@ -1417,13 +1417,24 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // Step 1.1: 只取最新 200 条 + 内容裁剪
+    // 倒序取最新，裁剪后反转回正序给前端展示
     const historyQuery = supabase
       .from('agent_conversation_messages')
       .select('*')
       .eq('user_id', userId)
       .eq('session_id', sessionId)
-      .order('created_at', { ascending: true });
-    const { data: historyData } = await historyQuery;
+      .order('created_at', { ascending: false })   // 倒序取最新
+      .limit(200);                                  // 最多 200 条
+    const { data: historyRaw } = await historyQuery;
+
+    // 裁剪每条 content 为摘要（前端只需展示用，LLM 上下文走 POST handler）
+    const historyData = (historyRaw || []).reverse().map((msg: Record<string, unknown>) => ({
+      ...msg,
+      content: typeof msg.content === 'string' && msg.content.length > 500
+        ? msg.content.slice(0, 500) + '...'
+        : msg.content,
+    }));
 
     // 3. 查询用户偏好
     const { data: preferencesData } = await supabase
@@ -1432,7 +1443,7 @@ export async function GET(request: NextRequest) {
       .eq('user_id', userId)
       .order('last_updated_at', { ascending: false });
 
-    console.log(`📔 [API] 返回 ${historyData?.length || 0} 条历史消息给前端`);
+    console.log(`📔 [API] 返回 ${historyData?.length || 0} 条历史消息给前端（已裁剪）`);
 
     return ok({
       data: {

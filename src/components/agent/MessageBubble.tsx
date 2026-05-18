@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import NextImage from 'next/image';
+import { SafeImage } from '@/components/ui/safe-image';
 import { cn } from '@/lib/utils';
 import { RichMessageContent } from '@/components/agent/RichMessageContent';
 import type { MessagePart } from '@/lib/agent-sse';
@@ -172,13 +172,14 @@ export function MessageBubble({
                       rel="noopener noreferrer"
                       className="block"
                     >
-                      <NextImage
+                      <SafeImage
                         src={attachment.url}
                         alt={attachment.name || `图片 ${index + 1}`}
                         width={220}
                         height={220}
                         className="max-w-[220px] max-h-[220px] rounded-lg border object-cover"
-                        unoptimized
+                         // KEEP unoptimized: TOS 签名 URL 含过期签名，Next.js 优化器无法重新获取
+                         unoptimized
                       />
                     </a>
                   ))}

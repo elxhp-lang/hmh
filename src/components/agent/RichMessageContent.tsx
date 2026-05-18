@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import NextImage from 'next/image';
+import { SafeImage } from '@/components/ui/safe-image';
 import type { MessagePart } from '@/lib/agent-sse';
 import { CardRenderer } from '@/components/agent/ActionCards';
 
@@ -125,12 +125,13 @@ export function RichMessageContent({ content, parts = [] }: RichMessageContentPr
         if (part.type === 'image') {
           return (
             <a key={`part_img_${pIdx}`} href={part.url} target="_blank" rel="noopener noreferrer" className="block">
-              <NextImage
+              <SafeImage
                 src={part.url}
                 alt={part.alt || `图片预览 ${pIdx + 1}`}
                 width={320}
                 height={260}
                 className="max-w-[320px] max-h-[260px] rounded-lg border object-cover"
+                // KEEP unoptimized: TOS 签名 URL 含过期签名，Next.js 优化器无法重新获取
                 unoptimized
               />
             </a>
@@ -309,13 +310,14 @@ export function RichMessageContent({ content, parts = [] }: RichMessageContentPr
             if (link.type === 'image') {
               return (
                 <a key={`img_${idx}`} href={link.url} target="_blank" rel="noopener noreferrer" className="block">
-                  <NextImage
+                  <SafeImage
                     src={link.url}
                     alt={`图片预览 ${idx + 1}`}
                     width={320}
                     height={260}
                     className="max-w-[320px] max-h-[260px] rounded-lg border object-cover"
-                    unoptimized
+                    // KEEP unoptimized: TOS 签名 URL 含过期签名，Next.js 优化器无法重新获取
+                unoptimized
                   />
                 </a>
               );

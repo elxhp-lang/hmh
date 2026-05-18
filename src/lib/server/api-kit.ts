@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import jwt, { JsonWebTokenError, TokenExpiredError } from 'jsonwebtoken';
+import crypto from 'crypto';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 // 生产环境警告
@@ -17,8 +18,39 @@ export function ok<T>(data: T, init?: ResponseInit) {
   return NextResponse.json({ success: true, ...data }, init);
 }
 
-export function fail(message: string, status = 400, extra?: Record<string, unknown>) {
-  return NextResponse.json({ success: false, error: message, ...(extra || {}) }, { status });
+// fail() 保持向后兼容:
+//   - 传入字符串 → 直接返回（用于业务错误：'未登录'、'余额不足'等）
+//   - 传入 Error 对象 → 启用安全模式：生产环境隐藏详情，仅返中文文案
+export function fail(
+  msgOrErr: string | Error,
+  statusOrMsg: string | number = 400,
+  extra?: Record<string, unknown>
+): NextResponse {
+  if (msgOrErr instanceof Error) {
+    const publicMsg = typeof statusOrMsg === 'string' ? statusOrMsg : '操作失败';
+    const httpStatus = typeof statusOrMsg === 'number' ? statusOrMsg : 500;
+    const correlationId = crypto.randomUUID().slice(0, 8);
+
+    if (process.env.NODE_ENV === 'development') {
+      return NextResponse.json(
+        { success: false, error: `${publicMsg} [${correlationId}]`, detail: msgOrErr.message },
+        { status: httpStatus }
+      );
+    }
+
+    console.error(`[api-kit ${correlationId}]`, msgOrErr.message);
+    return NextResponse.json(
+      { success: false, error: publicMsg, code: correlationId },
+      { status: httpStatus }
+    );
+  }
+
+  const message = msgOrErr;
+  const httpStatus = typeof statusOrMsg === 'number' ? statusOrMsg : 400;
+  return NextResponse.json(
+    { success: false, error: message, ...(extra || {}) },
+    { status: httpStatus }
+  );
 }
 
 export function getBearerToken(request: NextRequest): string | null {

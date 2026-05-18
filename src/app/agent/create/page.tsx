@@ -1003,13 +1003,20 @@ export default function CreativeAgentPageNew() {
     
     const fetchData = async () => {
       try {
-        // 获取历史任务
+        // Step 1.3: 两个独立请求并行，用 allSettled 保证一个失败不影响另一个
         const sessionQuery = activeSessionId ? `&sessionId=${activeSessionId}` : '';
-        const historyRes = await fetch(`/api/material/history?type=personal&limit=8${sessionQuery}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (historyRes.ok) {
-          const historyData = await historyRes.json();
+
+        const [historyResult, materialsResult] = await Promise.allSettled([
+          fetch(`/api/material/history?type=personal&limit=8${sessionQuery}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          }),
+          fetch('/api/learning-library?limit=10', {
+            headers: { Authorization: `Bearer ${token}` }
+          }),
+        ]);
+
+        if (historyResult.status === 'fulfilled' && historyResult.value.ok) {
+          const historyData = await historyResult.value.json();
           setHistory((historyData.videos as HistoryVideoRow[] | undefined)?.slice(0, 8).map((v) => ({
             id: v.id,
             title: v.prompt?.substring(0, 20) || '视频创作',
@@ -1019,12 +1026,8 @@ export default function CreativeAgentPageNew() {
           })) || []);
         }
         
-        // 获取素材列表
-        const materialsRes = await fetch('/api/learning-library?limit=10', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (materialsRes.ok) {
-          const materialsData = await materialsRes.json();
+        if (materialsResult.status === 'fulfilled' && materialsResult.value.ok) {
+          const materialsData = await materialsResult.value.json();
           setMaterials((materialsData.learnings as LearningMaterialRow[] | undefined)?.slice(0, 10).map((m) => ({
             id: m.id,
             name: m.title || m.video_name || '未命名素材',

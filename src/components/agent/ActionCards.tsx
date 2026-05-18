@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import NextImage from 'next/image';
+import { SafeImage } from '@/components/ui/safe-image';
 import { Badge } from '@/components/ui/badge';
 
 // ========== Script Card ==========
@@ -65,12 +65,13 @@ export function FirstFrameCard({ data }: FirstFrameCardProps) {
     <div className="rounded-xl border bg-card shadow-sm overflow-hidden max-w-sm">
       {imageUrl ? (
         <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="block">
-          <NextImage
+          <SafeImage
             src={imageUrl}
             alt={`首帧图${imageId ? ` ${imageId}` : ''}`}
             width={400}
             height={300}
             className="w-full h-auto object-cover"
+            // KEEP unoptimized: TOS 签名 URL 含过期签名，Next.js 优化器无法重新获取
             unoptimized
           />
         </a>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import NextImage from 'next/image';
+import { SafeImage } from '@/components/ui/safe-image';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -237,11 +237,12 @@ function TemplateSelector({ templates, onSelect }: TemplateSelectorProps) {
         >
           <div className="w-12 h-12 rounded bg-muted flex items-center justify-center flex-shrink-0 relative">
             {template.thumbnail ? (
-              <NextImage
+              <SafeImage
                 src={template.thumbnail}
                 alt=""
                 fill
                 className="w-full h-full object-cover rounded"
+                // KEEP unoptimized: TOS 签名 URL 含过期签名，Next.js 优化器无法重新获取
                 unoptimized
               />
             ) : (
@@ -300,11 +301,12 @@ function HistoryList({ items, onSelect }: HistoryListProps) {
         >
           <div className="w-10 h-10 rounded bg-muted flex items-center justify-center flex-shrink-0 relative">
             {item.thumbnail ? (
-              <NextImage
+              <SafeImage
                 src={item.thumbnail}
                 alt=""
                 fill
                 className="w-full h-full object-cover rounded"
+                // KEEP unoptimized: TOS 签名 URL 含过期签名，Next.js 优化器无法重新获取
                 unoptimized
               />
             ) : (
@@ -376,12 +378,13 @@ function MaterialManager({ materials, onDelete, onEdit }: MaterialManagerProps) 
             >
               <div className="aspect-square bg-muted relative">
                 {material.thumbnail ? (
-                  <NextImage
+                  <SafeImage
                     src={material.thumbnail} 
                     alt="" 
                     fill
                     className="w-full h-full object-cover" 
-                    unoptimized
+                // KEEP unoptimized: TOS 签名 URL 含过期签名，Next.js 优化器无法重新获取
+                unoptimized
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">

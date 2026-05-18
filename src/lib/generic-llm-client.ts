@@ -21,6 +21,7 @@ export async function* openAIStream(
   messages: LLMMessage[],
   config: LLMStreamConfig
 ): AsyncGenerator<{ content: string }> {
+  // Step 1.2a: 流式请求 2 分钟超时，防止远程 LLM 无响应时无限挂起占用线程
   const response = await fetch(`${apiUrl}/v1/chat/completions`, {
     method: 'POST',
     headers: {
@@ -32,8 +33,9 @@ export async function* openAIStream(
       messages,
       temperature: config.temperature ?? 0.7,
       max_tokens: config.max_tokens ?? 4096,
-      stream: true,
+      stream: true,                             // 流式逐 token 返回，需较长超时
     }),
+    signal: AbortSignal.timeout(120000),        // 2 分钟超时
   });
 
   if (!response.ok) {
@@ -78,6 +80,7 @@ export async function openAIChat(
   messages: LLMMessage[],
   config: LLMStreamConfig
 ): Promise<string> {
+  // Step 1.2a: 同步请求 1 分钟超时，完整响应一次返回不应过长
   const response = await fetch(`${apiUrl}/v1/chat/completions`, {
     method: 'POST',
     headers: {
@@ -90,6 +93,7 @@ export async function openAIChat(
       temperature: config.temperature ?? 0.7,
       max_tokens: config.max_tokens ?? 4096,
     }),
+    signal: AbortSignal.timeout(60000),         // 1 分钟超时
   });
 
   if (!response.ok) throw new Error(`OpenAI API error ${response.status}`);

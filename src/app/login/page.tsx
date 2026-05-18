@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
+import { SafeImage } from '@/components/ui/safe-image';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiRequest } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -189,7 +189,7 @@ export default function LoginPage() {
           >
             {/* Logo */}
             <div className="relative w-20 h-20 mb-4">
-              <Image
+              <SafeImage
                 src="/images/logo.png"
                 alt="海盟会"
                 fill

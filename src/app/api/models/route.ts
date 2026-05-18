@@ -6,6 +6,27 @@ import { ModelConfigAgent } from '@/lib/model-config-agent';
 
 const configAgent = new ModelConfigAgent();
 
+// Step 1.2b: api_url 安全校验——仅允许公网 HTTP/HTTPS URL
+// 拒绝: 环回(127.*/localhost/::1)、内网(10.*/172.16-31.*/192.168.*)、非 http 协议
+function isValidPublicUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    const hostname = url.hostname.toLowerCase();
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return false;
+    if (hostname.startsWith('0.') || hostname.startsWith('169.254.')) return false;
+    const parts = hostname.split('.').map(Number);
+    if (parts.length === 4 && parts.length === parts.filter(n => !isNaN(n)).length) {
+      if (parts[0] === 10) return false;
+      if (parts[0] === 192 && parts[1] === 168) return false;
+      if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function GET(request: NextRequest) {
   const auth = requireAuth(request);
   if (auth.response || !auth.user) return auth.response;
@@ -29,6 +50,11 @@ export async function POST(request: NextRequest) {
 
   if (!alias || !api_url || !api_key || !model_name) {
     return fail('缺少必要参数: alias, api_url, api_key, model_name', 400);
+  }
+
+  // Step 1.2b: 拒绝内网/非法 api_url
+  if (!isValidPublicUrl(api_url)) {
+    return fail('api_url 无效：仅支持公网 HTTPS 地址', 400);
   }
 
   const supabase = getSupabaseClient();
@@ -66,6 +92,11 @@ export async function PUT(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const { id, alias, api_url, api_key, model_name, is_default, auto_fallback, model_type } = body;
   if (!id) return fail('缺少模型ID', 400);
+
+  // Step 1.2b: 更新 api_url 时同样校验
+  if (api_url !== undefined && !isValidPublicUrl(api_url)) {
+    return fail('api_url 无效：仅支持公网 HTTPS 地址', 400);
+  }
 
   const supabase = getSupabaseClient();
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() };

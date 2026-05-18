@@ -1,7 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import Image from 'next/image';
+import { SafeImage } from '@/components/ui/safe-image';
 
 interface LogoProps {
   className?: string;
@@ -26,7 +26,7 @@ export function Logo({ className, size = 'md', showText = true, variant = 'dark'
     <div className={cn('flex items-center gap-3', className)}>
       {/* Logo 图片 */}
       <div className={cn('relative', sizes[size].container)}>
-        <Image
+        <SafeImage
           src="/images/logo-small.png"
           alt="海盟会"
           className="h-full w-auto object-contain"

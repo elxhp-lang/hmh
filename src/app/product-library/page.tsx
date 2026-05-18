@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import NextImage from 'next/image';
+import { SafeImage } from '@/components/ui/safe-image';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
@@ -472,11 +472,12 @@ export default function ProductLibraryPage() {
                                 key={img.key}
                                 className="aspect-square relative rounded overflow-hidden bg-muted"
                               >
-                                <NextImage
+                                <SafeImage
                                   src={img.url}
                                   alt={img.view_name}
                                   fill
                                   className="w-full h-full object-cover"
+                                  // KEEP unoptimized: TOS 签名 URL 含过期签名
                                   unoptimized
                                 />
                                 <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-0.5 text-center">
@@ -564,11 +565,12 @@ export default function ProductLibraryPage() {
                     <CardContent className="p-4">
                       <div className="aspect-video rounded-md bg-muted overflow-hidden mb-3">
                         {asset.asset_url ? (
-                          <NextImage
+                          <SafeImage
                             src={asset.asset_url}
                             alt={asset.name}
                             fill
                             className="w-full h-full object-cover"
+                            // KEEP unoptimized: TOS 签名 URL 含过期签名
                             unoptimized
                           />
                         ) : (
@@ -755,11 +757,12 @@ export default function ProductLibraryPage() {
                     {viewingProduct.images.map((img) => (
                       <div key={img.key} className="relative group">
                         <div className="aspect-square rounded overflow-hidden bg-muted">
-                          <NextImage
+                          <SafeImage
                             src={img.url}
                             alt={img.view_name}
                             fill
                             className="w-full h-full object-cover"
+                            // KEEP unoptimized: TOS 签名 URL 含过期签名
                             unoptimized
                           />
                         </div>

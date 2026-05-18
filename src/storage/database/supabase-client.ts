@@ -48,6 +48,14 @@ function getPool(): Pool {
     connectionTimeoutMillis: 2000,
   });
 
+  // Step 1.4: 每个新连接设置 statement_timeout 60 秒
+  // 用 SET SESSION（非全局），仅影响本连接的所有后续查询
+  // 60 秒为 SELECT/INSERT/UPDATE/DELETE/事务 留有充足余量
+  // 慢查询到 60 秒自动中止，释放连接回池，防止连接池耗尽
+  pool.on('connect', async (client) => {
+    await client.query('SET statement_timeout = 60000');
+  });
+
   pool.on('error', (err) => {
     console.error('[DB] Unexpected PostgreSQL pool error:', err);
   });
