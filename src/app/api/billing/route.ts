@@ -45,10 +45,11 @@ export async function GET(request: NextRequest) {
     // 判断权限：管理员可查看所有，普通用户只能查看自己
     const isAdmin = ['super_admin', 'admin', 'finance'].includes(decoded.role);
 
-    // 构建查询
+    // Step 2.4: 只选列表需要的列，排除 description(TEXT) 和 video_id/token_amount
+    const BILLING_LIST_COLUMNS = 'id,user_id,amount,task_type,created_at';
     let query = client
       .from('billing')
-      .select('*', { count: 'exact' });
+      .select(BILLING_LIST_COLUMNS, { count: 'exact' });
 
     // 非管理员只能查看自己的账单
     if (!isAdmin) {

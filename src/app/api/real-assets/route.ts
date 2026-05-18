@@ -11,8 +11,10 @@ function getTokenPayload(request: NextRequest) {
 }
 
 /**
- * GET /api/real-assets
+ * GET /api/real-assets?status=active&page=1&pageSize=20
  * 获取演员素材列表（所有登录用户可读）
+ * page/pageSize 为可选参数，不传时返回全部（向后兼容）
+ * pageSize 上限 100，防止单次拉取过多数据
  */
 export async function GET(request: NextRequest) {
   try {
@@ -25,6 +27,8 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status') || 'active';
     const category = searchParams.get('category');
     const keyword = searchParams.get('keyword');
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const pageSize = Math.min(parseInt(searchParams.get('pageSize') || '0', 10) || 0, 100);
 
     const client = getSupabaseClient();
 
@@ -45,12 +49,23 @@ export async function GET(request: NextRequest) {
       query = query.ilike('name', `%${keyword}%`);
     }
 
+    // Step 2.3: 分页——不传 pageSize 时返回全部(向后兼容)
+    if (pageSize > 0) {
+      const from = (page - 1) * pageSize;
+      query = query.range(from, from + pageSize - 1);
+    }
+
     const { data, error } = await query;
     if (error) {
       throw new Error(error.message);
     }
 
-    return NextResponse.json({ assets: data || [], total: data?.length || 0 });
+    return NextResponse.json({
+      assets: data || [],
+      total: data?.length || 0,
+      page: pageSize > 0 ? page : 1,
+      pageSize: pageSize > 0 ? pageSize : (data?.length || 0),
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : '获取演员素材失败' },
