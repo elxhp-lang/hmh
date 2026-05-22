@@ -687,3 +687,39 @@ coze start
 2. **文件上传**: 文件上传后存储到 TOS，按需生成签名 URL
 3. **视频生成**: 使用 Seedance 2.0 模型，支持文生视频和图生视频
 4. **智能体对话**: 使用 LLM 流式输出，支持多轮对话
+
+## Cursor Cloud specific instructions
+
+### Running the dev server
+
+The application is a single Next.js monolith served via a custom HTTP server (`src/server.ts`). Start it with:
+
+```bash
+cd /workspace && PORT=5000 pnpm tsx watch src/server.ts
+```
+
+The server listens on **port 5000**. Health check: `GET /api/health` returns `{"status":"ok",...}`.
+
+### Environment variables
+
+All required secrets (`PGDATABASE_URL`, `JWT_SECRET`, `ARK_API_KEY`, `VOLCENGINE_ACCESS_KEY_ID`, `VOLCENGINE_SECRET_ACCESS_KEY`, `TOS_*`) are injected by the Coze/Cursor Cloud platform automatically — no `.env.local` file is needed.
+
+The database connection uses `process.env.DATABASE_URL || process.env.PGDATABASE_URL` (see `src/storage/database/supabase-client.ts`).
+
+### Key commands
+
+| Task | Command |
+|------|---------|
+| Install deps | `pnpm install --frozen-lockfile` |
+| Dev server | `PORT=5000 pnpm tsx watch src/server.ts` |
+| Lint | `pnpm lint` |
+| Type check | `pnpm ts-check` |
+| Build (prod) | `pnpm build` |
+
+### Gotchas
+
+- The `.npmrc` sets `registry=https://registry.npmmirror.com` (Chinese npm mirror). If network issues arise during install, this is why.
+- There is no Supabase SDK — the project uses a custom `pg` Pool-based client that implements a Supabase-like API. Do not import `@supabase/supabase-js`.
+- `ffmpeg`, `ffprobe`, and `yt-dlp` are optional system deps for video processing. The app runs in degraded mode without them.
+- The `VideoGenerationPoller` starts automatically with the server — no separate background process needed.
+- The first registered user auto-becomes `super_admin`; subsequent users require admin approval (status=`pending`).
